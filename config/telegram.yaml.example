@@ -1,0 +1,12 @@
+# Copy to secrets/telegram.yaml and fill in. This directory is gitignored.
+# Register an application at https://my.telegram.org to obtain these.
+#
+# Environment variables TG_API_ID / TG_API_HASH override this file.
+
+api_id: 0
+api_hash: ""
+
+# Which registered app these credentials belong to. If this is not "SymboGram",
+# the build warns: an api_id is bound to one registered app, and sharing one
+# across two clients is what API_ID_PUBLISHED_FLOOD punishes.
+app_title: "SymboGram"

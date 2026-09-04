@@ -1,23 +1,64 @@
-﻿*.user
+# --- Qt Creator / qmake ---
+*.user
+*.pro.user.*
+*.autosave
 moc
+obj
+rcc/qrc_resources.cpp
+Makefile
+*.mk
+*.cache
+
+# --- Symbian build output (abld generates these into the source tree) ---
 bld.inf
 *.loc
 *.rss
-*.sis
 *.mmp
 *.pkg
-Makefile
-*.cache
-*.mk
+*.sis
+*.sisx
 ABLD.BAT
 *test
-rcc/qrc_resources.cpp
-*.pro.user.*
-*.autosave
+
+# --- built binary (renamed from upstream's "Kutegram") ---
+SymboGram
+
+# --- packaged artifacts ---
+/dist/
+
+# --- Symbian toolchain, fetched by tools/build-symbian.cmd, never committed ---
+/Symbian1Qt473/
+
+# --- secrets: api_id / api_hash / auth keys / signing material ---
+/secrets/
+libkg/apisecrets.h
+*.cer
+*.key
+*.pem
+*.p12
+*.pfx
+.env
+.env.*
+!.env.example
+
+# --- private working notes, never published (see docs/VENDORED.md rationale) ---
+/local/
+/private/
+
+# --- Debian / Harmattan packaging output ---
 debian
-obj
 build-stamp
 configure-stamp
-Kutegram
 *.deb
 *.changes
+
+# --- editors / OS ---
+.vscode/
+.idea/
+.claude/
+Thumbs.db
+desktop.ini
+.DS_Store
+*~
+*.swp
+*.bak
