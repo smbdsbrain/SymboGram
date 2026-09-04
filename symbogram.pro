@@ -48,7 +48,17 @@ winrt {
 }
 
 DEFINES += QT_USE_FAST_CONCATENATION QT_USE_FAST_OPERATOR_PLUS
-CONFIG(release, debug|release):DEFINES += QT_NO_DEBUG_OUTPUT KG_NO_DEBUG KG_NO_INFO
+# `qmake CONFIG+=devlog` keeps qDebug/qWarning compiled in and routes them to a
+# file via the handler in src/main.cpp. Needed because Qt sends qDebug to
+# OutputDebugString for GUI-subsystem apps on Windows, and Symbian has no
+# console at all -- so an ordinary release build is completely silent on both.
+# Attaching a console subsystem instead is not an option: it collides with Qt's
+# qtmain and fails to link on WinMain@16.
+devlog {
+    DEFINES += SYMBOGRAM_DEVLOG=1
+} else {
+    CONFIG(release, debug|release):DEFINES += QT_NO_DEBUG_OUTPUT KG_NO_DEBUG KG_NO_INFO
+}
 
 QML_IMPORT_PATH =
 

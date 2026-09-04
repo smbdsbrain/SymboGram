@@ -25,6 +25,7 @@ SymboGram
 
 # --- desktop (Qt 4.8.7 / MinGW) shadow build, used for autonomous testing ---
 /build-desktop/
+/build-desktop-debug/
 
 # --- packaged artifacts ---
 /dist/
@@ -34,6 +35,13 @@ SymboGram
 
 # --- secrets: api_id / api_hash / auth keys / signing material ---
 /secrets/
+# Live Telegram session for the desktop test build (SYMBOGRAM_SESSION_DIR).
+# Redundant with /secrets/ above, but spelled out: these files contain a
+# usable auth key. Anyone with them is logged into the account.
+/secrets/session/
+**/SymboGram_user_session.ini
+*.authkey
+*.session
 libkg/apisecrets.h
 *.cer
 *.key

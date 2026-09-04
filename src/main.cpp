@@ -15,10 +15,71 @@
 #include "platformutils.h"
 #include <QSystemSemaphore>
 #include <QSharedMemory>
+#include <QSettings>
 
 // Two levels so the argument is macro-expanded before being stringified.
 #define KG_STRINGIFY_(x) #x
 #define KG_STRINGIFY(x) KG_STRINGIFY_(x)
+
+#ifdef SYMBOGRAM_DEVLOG
+#include <QFile>
+#include <QFileInfo>
+#include <QDir>
+#include <QDateTime>
+#include <QMutex>
+
+// Qt routes qDebug() to OutputDebugString for GUI-subsystem apps on Windows,
+// and on Symbian there is no console at all, so in both cases a release build
+// is simply silent. Rather than fight the linker for a console subsystem
+// (which collides with Qt's qtmain and fails on WinMain@16), write the log to
+// a file. Same mechanism serves the phone, where it is the only option.
+//
+// Path: $SYMBOGRAM_LOG_FILE, else C:\Data\SymboGram\log.txt on Symbian,
+// else symbogram.log beside the executable.
+static QFile g_logFile;
+static QMutex g_logMutex;
+
+static void symbogramMessageHandler(QtMsgType type, const char *msg)
+{
+    static const char *const levels[] = { "DEBUG", "WARN ", "CRIT ", "FATAL" };
+    const char *level = (type >= 0 && type <= 3) ? levels[type] : "?????";
+
+    QMutexLocker locker(&g_logMutex);
+    if (g_logFile.isOpen()) {
+        g_logFile.write(QDateTime::currentDateTime()
+                            .toString("yyyy-MM-dd hh:mm:ss.zzz").toLatin1());
+        g_logFile.write(" [");
+        g_logFile.write(level);
+        g_logFile.write("] ");
+        g_logFile.write(msg);
+        g_logFile.write("\n");
+        g_logFile.flush();          // a crash must not cost us the last lines
+    }
+    if (type == QtFatalMsg) {
+        abort();
+    }
+}
+
+static void installDevLog()
+{
+    QString path = QString::fromLocal8Bit(qgetenv("SYMBOGRAM_LOG_FILE"));
+    if (path.isEmpty()) {
+#ifdef Q_OS_SYMBIAN
+        path = "C:\\Data\\SymboGram\\log.txt";
+#else
+        path = QCoreApplication::applicationDirPath() + "/symbogram.log";
+#endif
+    }
+    QDir().mkpath(QFileInfo(path).absolutePath());
+
+    // Truncate per run: these are diagnostic logs for one session, and an
+    // ever-growing file on a phone is its own problem.
+    g_logFile.setFileName(path);
+    if (g_logFile.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        qInstallMsgHandler(symbogramMessageHandler);
+    }
+}
+#endif // SYMBOGRAM_DEVLOG
 
 #if QT_VERSION >= 0x050000
 #include <QQmlContext>
@@ -42,6 +103,12 @@ int main(int argc, char *argv[])
 #endif
 
     QApplication app(argc, argv);
+
+#ifdef SYMBOGRAM_DEVLOG
+    // As early as possible, but after QApplication so applicationDirPath works.
+    installDevLog();
+    qDebug("SymboGram %s starting (Qt %s)", KG_STRINGIFY(VERSION), qVersion());
+#endif
 
     QSystemSemaphore sema("SymboGram_semaphore", 1);
     bool isRunning;
@@ -85,6 +152,21 @@ int main(int argc, char *argv[])
     QApplication::setApplicationName("SymboGram");
     QApplication::setOrganizationName("SymboGram");
     QApplication::setOrganizationDomain("github.com/smbdsbrain/SymboGram");
+
+    // Optional redirect for where the session lives. TgTransport persists the
+    // auth key through QSettings(IniFormat, UserScope, ...), and TgClient
+    // derives its session and cache directories from that same path, so one
+    // override moves all of it.
+    //
+    // The desktop test build uses this to keep the auth key inside the
+    // gitignored secrets/ tree rather than %APPDATA%, so a real session can be
+    // reused across runs without it sitting somewhere easy to commit by
+    // accident. Unset everywhere else, so Symbian behaviour is unchanged.
+    const QByteArray sessionDir = qgetenv("SYMBOGRAM_SESSION_DIR");
+    if (!sessionDir.isEmpty()) {
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope,
+                           QString::fromLocal8Bit(sessionDir));
+    }
 
     QTextCodec *codec = QTextCodec::codecForName("UTF-8");
 #if QT_VERSION < 0x050000
