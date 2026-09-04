@@ -19,14 +19,14 @@ Rectangle {
                 anchors.fill: parent
                 //asynchronous: true
                 smooth: true
-                source: "../../kutegramquick_big.png"
+                source: "../../symbogram_big.png"
             }
         }
 
         Text {
             anchors.left: parent.left
             anchors.right: parent.right
-            text: "Kutegram"
+            text: "SymboGram"
             font.bold: true
             wrapMode: Text.Wrap
             horizontalAlignment: Text.AlignHCenter

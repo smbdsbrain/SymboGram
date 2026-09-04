@@ -12,14 +12,14 @@ TgLongVariant TgClient::authSendCode(QString phoneNumber)
 
     method["phone_number"] = phoneNumber;
 
-#if defined(KUTEGRAM_API_ID)
-    method["api_id"] = KUTEGRAM_API_ID;
+#if defined(SYMBOGRAM_API_ID)
+    method["api_id"] = SYMBOGRAM_API_ID;
 #else
     #error "Please, specify an API id."
 #endif
 
-#if defined(KUTEGRAM_API_HASH)
-    method["api_hash"] = KUTEGRAM_API_HASH;
+#if defined(SYMBOGRAM_API_HASH)
+    method["api_hash"] = SYMBOGRAM_API_HASH;
 #else
     #error "Please, specify an API hash."
 #endif

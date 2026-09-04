@@ -1,6 +1,11 @@
-TARGET = Kutegram
-APPNAME = Kutegram
-VERSION = 1.2.0
+TARGET = SymboGram
+APPNAME = SymboGram
+# Fork version numbering starts fresh. Claiming upstream's 1.2.0 while shipping
+# different code would make bug reports ambiguous; the lineage is recorded
+# separately below and shown in the About screen.
+VERSION = 0.1.0
+UPSTREAM_VERSION = 1.2.0
+DEFINES += UPSTREAM_VERSION=$$UPSTREAM_VERSION
 # NB: qmake's $$replace() takes a REGEX, so the original
 #     $$replace(VERSION, ".", ",")
 # matched every character and expanded 1.2.0 to ",,,,,", producing a .pkg
@@ -36,9 +41,9 @@ winrt {
     WINRT_MANIFEST.logo_splash = wpassets/logo_480x800.png
     WINRT_MANIFEST.logo_store = wpassets/logo_store.png
     WINRT_MANIFEST.logo_wide = wpassets/logo_310x150.png
-    WINRT_MANIFEST.publisherid = "CN=curoviyxru"
-    WINRT_MANIFEST.identity = "1dcfeda8-9772-4658-8c54-853732753c6f"
-    WINRT_MANIFEST.publisher = "curoviyxru"
+    WINRT_MANIFEST.publisherid = "CN=smbdsbrain"
+    WINRT_MANIFEST.identity = "7f3c1a94-5d62-4b08-9e71-2ac6d4f80b13"
+    WINRT_MANIFEST.publisher = "smbdsbrain"
     WINRT_MANIFEST.version = $$VERSION".0"
 }
 
@@ -47,8 +52,8 @@ CONFIG(release, debug|release):DEFINES += QT_NO_DEBUG_OUTPUT KG_NO_DEBUG KG_NO_I
 
 QML_IMPORT_PATH =
 
-win32:RC_FILE = kutegramquick.rc
-macx:ICON = kutegramquick.icns
+win32:RC_FILE = symbogram.rc
+macx:ICON = symbogram.icns
 
 symbian {
     LIBS += -lavkon -lapgrfx -lcone -leikcore -lapmime
@@ -58,13 +63,34 @@ symbian {
         include(pigler/qt-library/pigler.pri)
     }
 
-    ICON = kutegramquick.svg
-    TARGET.UID3 = 0xE0713D51
+    ICON = symbogram.svg
+    # Own UID, so SymboGram installs alongside upstream Kutegram rather than
+    # replacing it. 0xE0000000-0xEFFFFFFF is the unprotected range that needs no
+    # Symbian Signed involvement. Derived as
+    #     0xE0000000 | (crc32("SymboGram") & 0x0FFFFFFF)
+    # purely so the number is reproducible rather than plucked from the air.
+    TARGET.UID3 = 0xE4A51BF7
     DEFINES += SYMBIAN_UID=$$TARGET.UID3
 
-    TARGET.CAPABILITY += ReadUserData WriteUserData UserEnvironment NetworkServices LocalServices SwEvent
-    #TARGET.EPOCHEAPSIZE = 0x400000 0x4000000
-    #TARGET.EPOCSTACKSIZE = 0x14000
+    # These five are the complete set of user-grantable capabilities, so the
+    # package self-signs and installs on a stock, unmodified device. SwEvent --
+    # which upstream requests -- is a SYSTEM capability and is not self-signable;
+    # a SIS carrying it is rejected on any phone without a developer certificate
+    # or an installserver patch. It is only needed by the
+    # BringToForeground/SendMessage path in src/platformutils.cpp, which is
+    # #ifdef'd out to a StartDocument fallback unless you opt in with
+    #     qmake CONFIG+=swevent
+    TARGET.CAPABILITY += ReadUserData WriteUserData UserEnvironment NetworkServices LocalServices
+    CONFIG(swevent) {
+        TARGET.CAPABILITY += SwEvent
+        DEFINES += SYMBOGRAM_HAVE_SWEVENT=1
+    }
+
+    # Upstream leaves these commented, inheriting qmlapplicationviewer's
+    # 128 KB/32 MB default. The E6 has 256 MB; a 32 MB ceiling will not survive
+    # long chats once history and image caches are live.
+    TARGET.EPOCHEAPSIZE = 0x400000 0x4000000
+    TARGET.EPOCSTACKSIZE = 0x14000
 
     supported_platforms = \
             "[0x1028315F],0,0,0,{\"S60ProductID\"}" \ # Symbian^1
@@ -80,18 +106,18 @@ symbian {
     vendor_info = \
         " " \
         "; Localised Vendor name" \
-        "%{\"curoviyxru\"}" \
+        "%{\"smbdsbrain\"}" \
         " " \
         "; Unique Vendor name" \
-        ":\"curoviyxru\"" \
+        ":\"smbdsbrain\"" \
         " "
     package.pkg_prerules += vendor_info
 
-    header = "$${LITERAL_HASH}{\"Kutegram\"},(0xE0713D51),$$PKG_VERSION,TYPE=SA,RU"
+    header = "$${LITERAL_HASH}{\"SymboGram\"},(0xE4A51BF7),$$PKG_VERSION,TYPE=SA,RU"
     package.pkg_prerules += header
 
     DEPLOYMENT += package
-    DEPLOYMENT.installer_header = "$${LITERAL_HASH}{\"Kutegram Installer\"},(0xE5E0AFB2),$$PKG_VERSION"
+    DEPLOYMENT.installer_header = "$${LITERAL_HASH}{\"SymboGram Installer\"},(0xEEC88BF5),$$PKG_VERSION"
 }
 
 INCLUDEPATH += src

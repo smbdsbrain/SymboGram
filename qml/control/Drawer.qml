@@ -1,5 +1,5 @@
 import QtQuick 1.0
-import Kutegram 1.0
+import SymboGram 1.0
 
 Item {
     property bool opened: false
@@ -260,7 +260,7 @@ Item {
                             anchors.bottomMargin: 8 * kgScaling
 
                             color: "#999999"
-                            text: "Version " + kutegramVersion + " for " + kutegramPlatform
+                            text: "Version " + symbogramVersion + " for " + symbogramPlatform
                             elide: Text.ElideRight
                             font.bold: true
                             font.pixelSize: 12 * kgScaling

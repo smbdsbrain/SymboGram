@@ -18,9 +18,9 @@
 
 void TgClient::registerQML()
 {
-    qmlRegisterType<TgClient>("Kutegram", 1, 0, "TgClient");
-    qmlRegisterType<TgStream>("Kutegram", 1, 0, "TgStream");
-    qmlRegisterType<TgPacket>("Kutegram", 1, 0, "TgPacket");
+    qmlRegisterType<TgClient>("SymboGram", 1, 0, "TgClient");
+    qmlRegisterType<TgStream>("SymboGram", 1, 0, "TgStream");
+    qmlRegisterType<TgPacket>("SymboGram", 1, 0, "TgPacket");
     qRegisterMetaType<TelegramObject>("TelegramObject");
     qRegisterMetaType<TgVariant>("TgVariant");
     qRegisterMetaType<TgObject>("TgObject");

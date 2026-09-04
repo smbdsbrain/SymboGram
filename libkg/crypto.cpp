@@ -58,7 +58,9 @@ QByteArray randomBytes(qint32 size)
     mbedtls_ctr_drbg_init(&ctr_drbg);
 
     qint32 ret = mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func, &entropy,
-                                       (const unsigned char *) "kutegram_random_lol_", 20);
+                                       // NB: the length below is hardcoded, so this
+                                       // string must stay exactly 20 bytes.
+                                       (const unsigned char *) "symbogram_random_lol", 20);
     if (ret != 0)
     {
         kgCritical() << "Mbed TLS random error:" << ret;

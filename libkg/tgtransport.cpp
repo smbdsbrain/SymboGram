@@ -809,7 +809,7 @@ void TgTransport::initConnection()
     TGOBJECT(TLType::HelpGetConfigMethod, getConfig);
     TGOBJECT(TLType::InitConnectionMethod, initConnection);
 
-    initConnection["api_id"] = KUTEGRAM_API_ID;
+    initConnection["api_id"] = SYMBOGRAM_API_ID;
     initConnection["device_model"] = QString(systemName() + "-based device");
     initConnection["system_version"] = systemName();
     QString appVersion = QCoreApplication::applicationVersion();

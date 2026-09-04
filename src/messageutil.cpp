@@ -37,15 +37,15 @@ void getTags(TgObject entity, QString textPart, qint32 i, QString &sTag, QString
         eTag = "";
         break;
     case MessageEntityMention:
-        sTag = "<a href=\"kutegram://profile/" + textPart + "\">";
+        sTag = "<a href=\"symbogram://profile/" + textPart + "\">";
         eTag = "</a>";
         break;
     case MessageEntityHashtag:
-        sTag = "<a href=\"kutegram://search/" + textPart + "\">";
+        sTag = "<a href=\"symbogram://search/" + textPart + "\">";
         eTag = "</a>";
         break;
     case MessageEntityBotCommand:
-        sTag = "<a href=\"kutegram://execute/" + textPart + "\">";
+        sTag = "<a href=\"symbogram://execute/" + textPart + "\">";
         eTag = "</a>";
         break;
     case MessageEntityUrl:
@@ -77,11 +77,11 @@ void getTags(TgObject entity, QString textPart, qint32 i, QString &sTag, QString
         eTag = "</a>";
         break;
     case MessageEntityMentionName:
-        sTag = "<a href=\"kutegram://profile/" + entity["user_id"].toString() + "\">";
+        sTag = "<a href=\"symbogram://profile/" + entity["user_id"].toString() + "\">";
         eTag = "</a>";
         break;
     case InputMessageEntityMentionName:
-        sTag = "<a href=\"kutegram://profile/" + TgClient::getPeerId(entity["user_id"].toMap()).toString() + "\">";
+        sTag = "<a href=\"symbogram://profile/" + TgClient::getPeerId(entity["user_id"].toMap()).toString() + "\">";
         eTag = "</a>";
         break;
     case MessageEntityPhone:
@@ -89,7 +89,7 @@ void getTags(TgObject entity, QString textPart, qint32 i, QString &sTag, QString
         eTag = "</a>";
         break;
     case MessageEntityCashtag:
-        sTag = "<a href=\"kutegram://search/" + textPart + "\">";
+        sTag = "<a href=\"symbogram://search/" + textPart + "\">";
         eTag = "</a>";
         break;
     case MessageEntityUnderline:
@@ -105,11 +105,11 @@ void getTags(TgObject entity, QString textPart, qint32 i, QString &sTag, QString
         eTag = "</code>";
         break;
     case MessageEntityBankCard:
-        sTag = "<a href=\"kutegram://card/" + textPart + "\">";
+        sTag = "<a href=\"symbogram://card/" + textPart + "\">";
         eTag = "</a>";
         break;
     case MessageEntitySpoiler:
-        sTag = "<a class=\"spoiler\" href=\"kutegram://spoiler/" + QString::number(i) + "\"><font color=\"white\">";
+        sTag = "<a class=\"spoiler\" href=\"symbogram://spoiler/" + QString::number(i) + "\"><font color=\"white\">";
         eTag = "</font></a>";
         break;
     case MessageEntityCustomEmoji: //TODO custom emoji

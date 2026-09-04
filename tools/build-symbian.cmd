@@ -34,14 +34,18 @@ if exist "%PROJ%\symbogram.pro" set "PROFILE=symbogram.pro"
 :: MAX_PATH; the 2011 binaries are not long-path aware. qtenvS1.bat also
 :: derives EPOCROOT by stripping the drive letter (%SDKPREFIX:~2%), so the
 :: SDK and the project must live on the SAME logical drive.
+:: Test for the mapping we actually want rather than probing `subst` itself --
+:: its query form does not report "already mapped" through errorlevel, so
+:: checking that instead makes the script fail on every run after the first.
 set "SUBSTDRV=S:"
-subst %SUBSTDRV% >nul 2>&1
-if errorlevel 1 (
-    subst %SUBSTDRV% "%PARENT%" || (echo FAILED: subst %SUBSTDRV% "%PARENT%" & exit /b 1)
-)
 set "WORK=%SUBSTDRV%\%PROJNAME%"
 set "SDK=%WORK%\Symbian1Qt473"
-if not exist "%WORK%\%PROFILE%" (echo FAILED: %WORK%\%PROFILE% not found & exit /b 1)
+if not exist "%WORK%\%PROFILE%" subst %SUBSTDRV% "%PARENT%" >nul 2>&1
+if not exist "%WORK%\%PROFILE%" (
+    echo FAILED: %WORK%\%PROFILE% not found.
+    echo   %SUBSTDRV% may be mapped elsewhere; free it with: subst %SUBSTDRV% /D
+    exit /b 1
+)
 
 :: --- Telegram credentials -> libkg\apisecrets.h -----------------------
 :: libkg.pri lists apisecrets.h in HEADERS, so the build cannot link without it.
@@ -89,8 +93,11 @@ qmake.exe "%PROFILE%" -r -spec symbian-abld "CONFIG+=release" ^
 :: itself a .bat, so ABLD.BAT is not visible to the next line and
 :: `make release-gcce` dies with "'ABLD.BAT' is not recognized". Running it
 :: here sidesteps that entirely.
+:: NOTE the `call`. bldmake resolves to bldmake.BAT, and invoking a batch file
+:: from a batch file without `call` transfers control and never returns -- the
+:: script would end here silently, with a success exit code and no SIS.
 echo [2/4] bldmake bldfiles
-bldmake bldfiles || exit /b 1
+call bldmake bldfiles || exit /b 1
 
 :: --- compile ------------------------------------------------------------
 echo [3/4] abld build gcce urel

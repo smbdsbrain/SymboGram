@@ -194,7 +194,7 @@ Item {
             width: parent.width
             height: parent.height
             verticalAlignment: Text.AlignVCenter
-            text: "Kutegram"
+            text: "SymboGram"
             font.bold: true
             font.pixelSize: 12 * kgScaling
             color: "#FFFFFF"

@@ -632,7 +632,7 @@ void MessagesModel::linkActivated(QString link, qint32 listIndex)
         }
 
         while (!parent.isNull()) {
-            if (parent.toElement().attribute("href").startsWith("kutegram://spoiler/")) {
+            if (parent.toElement().attribute("href").startsWith("symbogram://spoiler/")) {
                 parent.toElement().removeAttribute("href");
 
                 QList<QDomNode> list;
@@ -709,7 +709,7 @@ void MessagesModel::downloadFile(qint32 index)
 
     cancelDownload(index);
 
-    QDir::home().mkdir("Kutegram");
+    QDir::home().mkdir("SymboGram");
 
     QString fileName = _history[index]["mediaFileName"].toString();
     if (fileName.isEmpty()) fileName = QString::number(QDateTime::currentDateTime().toMSecsSinceEpoch());
@@ -734,7 +734,7 @@ void MessagesModel::downloadFile(qint32 index)
 #else
     QDir dir(QStandardPaths::writableLocation(QStandardPaths::DownloadLocation));
 #endif
-    dir.mkpath("Kutegram/");
+    dir.mkpath("SymboGram/");
 
     QString indexedFileName = fileName;
     QString indexedFilePath = dir.absoluteFilePath("Kutegram/" + indexedFileName);

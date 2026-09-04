@@ -3,7 +3,7 @@ import "../dialog"
 import "../message"
 import "../control"
 import "../auth"
-import Kutegram 1.0
+import SymboGram 1.0
 
 Item {
     id: mainScreen

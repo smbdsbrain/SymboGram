@@ -1,5 +1,5 @@
 import QtQuick 1.0
-import Kutegram 1.0
+import SymboGram 1.0
 
 Rectangle {
     property string globalState: "NO_SELECT"

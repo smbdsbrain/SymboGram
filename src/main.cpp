@@ -43,16 +43,16 @@ int main(int argc, char *argv[])
 
     QApplication app(argc, argv);
 
-    QSystemSemaphore sema("Kutegram_semaphone", 1);
+    QSystemSemaphore sema("SymboGram_semaphore", 1);
     bool isRunning;
     sema.acquire();
 
     {
-        QSharedMemory shmem("Kutegram_shared");
+        QSharedMemory shmem("SymboGram_shared");
         shmem.attach();
     }
 
-    QSharedMemory shmem("Kutegram_shared");
+    QSharedMemory shmem("SymboGram_shared");
     if (shmem.attach())
     {
         isRunning = true;
@@ -65,7 +65,7 @@ int main(int argc, char *argv[])
 
     sema.release();
     if (isRunning) {
-        //TODO raise Kutegram window
+        //TODO raise SymboGram window
         return 1;
     }
 
@@ -82,9 +82,9 @@ int main(int argc, char *argv[])
     // VERSION arrives unquoted from the .pro (see the comment there: the
     // escaped-quote form breaks the symbian-abld build), so stringify it here.
     QApplication::setApplicationVersion(QString(KG_STRINGIFY(VERSION)));
-    QApplication::setApplicationName("Kutegram");
-    QApplication::setOrganizationName("Kutegram");
-    QApplication::setOrganizationDomain("kg.crx.moe");
+    QApplication::setApplicationName("SymboGram");
+    QApplication::setOrganizationName("SymboGram");
+    QApplication::setOrganizationDomain("github.com/smbdsbrain/SymboGram");
 
     QTextCodec *codec = QTextCodec::codecForName("UTF-8");
 #if QT_VERSION < 0x050000
@@ -94,25 +94,25 @@ int main(int argc, char *argv[])
     QTextCodec::setCodecForLocale(codec);
 
     TgClient::registerQML();
-    qmlRegisterType<DialogsModel>("Kutegram", 1, 0, "DialogsModel");
-    qmlRegisterType<MessagesModel>("Kutegram", 1, 0, "MessagesModel");
-    qmlRegisterType<AvatarDownloader>("Kutegram", 1, 0, "AvatarDownloader");
-    qmlRegisterType<FoldersModel>("Kutegram", 1, 0, "FoldersModel");
-    qmlRegisterType<CurrentUserInfo>("Kutegram", 1, 0, "CurrentUserInfo");
-    qmlRegisterUncreatableType<PlatformUtils>("Kutegram", 1, 0, "PlatformUtils", "PlatformUtils is uncreatable. Use platformUtils root property.");
+    qmlRegisterType<DialogsModel>("SymboGram", 1, 0, "DialogsModel");
+    qmlRegisterType<MessagesModel>("SymboGram", 1, 0, "MessagesModel");
+    qmlRegisterType<AvatarDownloader>("SymboGram", 1, 0, "AvatarDownloader");
+    qmlRegisterType<FoldersModel>("SymboGram", 1, 0, "FoldersModel");
+    qmlRegisterType<CurrentUserInfo>("SymboGram", 1, 0, "CurrentUserInfo");
+    qmlRegisterUncreatableType<PlatformUtils>("SymboGram", 1, 0, "PlatformUtils", "PlatformUtils is uncreatable. Use platformUtils root property.");
 
     //TODO show status pane without button group on Symbian
     QmlApplicationViewer viewer;
     viewer.setOrientation(QmlApplicationViewer::ScreenOrientationAuto);
-    viewer.rootContext()->setContextProperty("kutegramVersion", QApplication::applicationVersion());
-    viewer.rootContext()->setContextProperty("kutegramPlatform", systemName());
+    viewer.rootContext()->setContextProperty("symbogramVersion", QApplication::applicationVersion());
+    viewer.rootContext()->setContextProperty("symbogramPlatform", systemName());
     viewer.rootContext()->setContextProperty("platformUtils", new PlatformUtils(&viewer));
     viewer.rootContext()->setContextProperty("kgScaling", QFontMetrics(app.font()).height() / 14.0f);
     viewer.setMainQmlFile(QLatin1String("qrc:///qml/Main.qml"));
 #if QT_VERSION >= 0x050000
-    viewer.setTitle("Kutegram");
+    viewer.setTitle("SymboGram");
 #else
-    viewer.setWindowTitle("Kutegram");
+    viewer.setWindowTitle("SymboGram");
 #endif
     viewer.showExpanded();
 

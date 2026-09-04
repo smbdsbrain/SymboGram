@@ -33,7 +33,7 @@
         <file>img/close.png</file>
         <file>img/exit-to-app.png</file>
         <file>img/refresh.png</file>
-        <file>kutegramquick_big.png</file>
+        <file>symbogram_big.png</file>
         <file>img/close-circle-outline_inner.png</file>
         <file>qml/control/SnackBar.qml</file>
         <file>img/media/account.png</file>
@@ -85,7 +85,7 @@
         <file>qml/control/MainScreen.qml</file>
         <file>qml/control/AuthScreen.qml</file>
         <file>qml/control/MessageIntroPage.qml</file>
-        <file>kutegramquick_small.png</file>
-        <file>kutegramquick_pigler.png</file>
+        <file>symbogram_small.png</file>
+        <file>symbogram_pigler.png</file>
     </qresource>
 </RCC>

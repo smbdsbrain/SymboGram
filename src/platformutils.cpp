@@ -264,6 +264,14 @@ void openUrl(QUrl url)
     buf16->Des().Copy(KBrowserPrefix); // Prefix used to launch correct browser view
     buf16->Des().Append(tUrl);
 
+    // TApaTask::BringToForeground() and ::SendMessage() both require the SwEvent
+    // capability. SwEvent is a SYSTEM capability: it cannot be self-signed, so a
+    // package requesting it will not install on a stock device. SymboGram
+    // therefore ships without it by default and reaches the browser through
+    // StartDocument(), which needs no extra capability. Build with
+    // `qmake CONFIG+=swevent` to restore the reuse-existing-instance path on a
+    // device that has a developer certificate or an installserver patch.
+#ifdef SYMBOGRAM_HAVE_SWEVENT
     TApaTaskList taskList(CCoeEnv::Static()->WsSession());
     TApaTask task = taskList.FindApp(handlerUID);
     if (task.Exists()) {
@@ -273,7 +281,9 @@ void openUrl(QUrl url)
         param8->Des().Append(buf16->Des());
         task.SendMessage(TUid::Uid(0), *param8); // Uid is not used
         CleanupStack::PopAndDestroy(param8);
-    } else {
+    } else
+#endif
+    {
         // Start a new browser instance
         TThreadId id;
         appArcSession.StartDocument(*buf16, handlerUID, id);
