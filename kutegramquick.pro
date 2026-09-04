@@ -1,8 +1,19 @@
 TARGET = Kutegram
 APPNAME = Kutegram
 VERSION = 1.2.0
-PKG_VERSION = $$replace(VERSION, ".", ",")
-DEFINES += VERSION=\\\"$$VERSION\\\"
+# NB: qmake's $$replace() takes a REGEX, so the original
+#     $$replace(VERSION, ".", ",")
+# matched every character and expanded 1.2.0 to ",,,,,", producing a .pkg
+# header with an empty version that makesis rejects ("Expected numeric value").
+# $$split takes a literal separator, so this needs no escaping.
+VERSION_PARTS = $$split(VERSION, ".")
+PKG_VERSION = $$join(VERSION_PARTS, ",")
+# Passed unquoted and stringified in main.cpp via KG_STRINGIFY. Emitting the
+# quotes here instead produces `MACRO VERSION=\"1.2.0\"` in the generated .mmp,
+# which Symbian's cpp.exe rejects with "unterminated string or character
+# constant" -- the backslash escaping that works for the desktop mkspecs does
+# not survive the symbian-abld one.
+DEFINES += VERSION=$$VERSION
 #DATE = $$system(date /t)
 #DEFINES += BUILDDATE=\"\\\"$$DATE\\\"\"
 #COMMIT_SHA = $$system(git log --pretty=format:%h -n 1);

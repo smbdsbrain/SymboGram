@@ -10,6 +10,10 @@
 #include <QUrl>
 #include <QHash>
 #include <QWidget>
+// QVariantMap is used below. On desktop it arrives transitively via
+// QSystemTrayIcon/QMenu, but those are excluded on Symbian by the guard above,
+// so moc_platformutils.cpp fails there without this.
+#include <QVariant>
 
 #ifdef SYMBIAN3_READY
 #include "QPiglerAPI.h"

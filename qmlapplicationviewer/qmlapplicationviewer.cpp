@@ -81,7 +81,10 @@ QmlApplicationViewer::QmlApplicationViewer(QObject *parent) :
     QQuickView(dynamic_cast<QWindow*>(parent)),
 #else
 QmlApplicationViewer::QmlApplicationViewer(QObject *parent) :
-    QDeclarativeView(parent),
+    // QDeclarativeView takes a QWidget*, not a QObject*. The Qt5 branch above
+    // casts for the same reason; without this the Qt4/Symbian build does not
+    // compile at all.
+    QDeclarativeView(qobject_cast<QWidget*>(parent)),
 #endif
     m_d(new QmlApplicationViewerPrivate)
 {

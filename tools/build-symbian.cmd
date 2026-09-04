@@ -1,0 +1,125 @@
+@echo off
+setlocal EnableExtensions
+::=====================================================================
+:: SymboGram - Symbian^1 / Qt 4.7.3 build
+::
+:: Upstream kutegram/quick ships no build script at all; the archived
+:: kutegram/client had buildSymbian.bat, which this is modelled on.
+::
+:: Must run from cmd.exe, NOT Git Bash or PowerShell: the Symbian perl
+:: scripts shell out to find/sort/make, and Git-for-Windows' POSIX
+:: versions shadow the SDK ones and fail in ways that look unrelated.
+::
+:: Usage:  tools\build-symbian.cmd [clean]
+::=====================================================================
+
+:: abld invokes the ABLD.BAT it generates in the project root as a bare command.
+:: If NoDefaultCurrentDirectoryInExePath is set (it is, on some Windows setups
+:: and in some CI images), cmd refuses to resolve executables from the current
+:: directory and the build dies with "'ABLD.BAT' is not recognized" immediately
+:: after bldmake reported success. Clear it for this process only.
+set "NoDefaultCurrentDirectoryInExePath="
+
+:: --- locate project and its parent -----------------------------------
+set "SCRIPTDIR=%~dp0"
+for %%i in ("%SCRIPTDIR%..") do set "PROJ=%%~fi"
+for %%i in ("%PROJ%")        do set "PROJNAME=%%~nxi"
+for %%i in ("%PROJ%\..")     do set "PARENT=%%~fi"
+
+set "PROFILE=kutegramquick.pro"
+if exist "%PROJ%\symbogram.pro" set "PROFILE=symbogram.pro"
+
+:: --- short drive ------------------------------------------------------
+:: abld builds under epoc32\build\<mangled-full-source-path>\ and blows past
+:: MAX_PATH; the 2011 binaries are not long-path aware. qtenvS1.bat also
+:: derives EPOCROOT by stripping the drive letter (%SDKPREFIX:~2%), so the
+:: SDK and the project must live on the SAME logical drive.
+set "SUBSTDRV=S:"
+subst %SUBSTDRV% >nul 2>&1
+if errorlevel 1 (
+    subst %SUBSTDRV% "%PARENT%" || (echo FAILED: subst %SUBSTDRV% "%PARENT%" & exit /b 1)
+)
+set "WORK=%SUBSTDRV%\%PROJNAME%"
+set "SDK=%WORK%\Symbian1Qt473"
+if not exist "%WORK%\%PROFILE%" (echo FAILED: %WORK%\%PROFILE% not found & exit /b 1)
+
+:: --- Telegram credentials -> libkg\apisecrets.h -----------------------
+:: libkg.pri lists apisecrets.h in HEADERS, so the build cannot link without it.
+pwsh -NoProfile -ExecutionPolicy Bypass -File "%PROJ%\tools\write-apisecrets.ps1" || (
+    echo FAILED: could not generate libkg\apisecrets.h & exit /b 1
+)
+
+:: --- SDK --------------------------------------------------------------
+if not exist "%SDK%\bin\qtenvS1.bat" (
+    echo Fetching Symbian toolchain...
+    git clone --depth 1 --branch Symbian1Qt473 -c core.autocrlf=false ^
+        https://github.com/smbdsbrain/kutegram-compilers-mirror.git "%SDK%" || exit /b 1
+)
+
+:: patch.qmake.paths.bat renames .qmake.cache -> .PREV, but the repo already
+:: SHIPS .PREV and .bak files, so the rename fails on a fresh clone. Harmless
+:: (the following copy overwrites anyway) but it makes the script non-idempotent
+:: and the log noisy. Clear them first.
+del /q "%SDK%\.qmake.cache.PREV" "%SDK%\.qmake.cache.bak" >nul 2>&1
+del /q "%SDK%\bin\qt.conf.PREV" "%SDK%\bin\qt.conf.bak" >nul 2>&1
+del /q "%SDK%\mkspecs\default\qmake.conf.PREV" "%SDK%\mkspecs\default\qmake.conf.bak" >nul 2>&1
+
+%SUBSTDRV%
+cd "%SDK%"
+call "%SDK%\patch.qmake.paths.bat" >nul 2>&1
+cd "%SDK%"
+call bin\qtenvS1.bat >nul 2>&1
+cd "%WORK%"
+
+:: --- clean ------------------------------------------------------------
+if /i "%~1"=="clean" (
+    if exist ABLD.BAT call ABLD.BAT reallyclean >nul 2>&1
+    del /q Makefile bld.inf ABLD.BAT *.mmp *.pkg *.loc *.rss >nul 2>&1
+)
+
+:: --- generate -----------------------------------------------------------
+echo [1/4] qmake
+qmake.exe "%PROFILE%" -r -spec symbian-abld "CONFIG+=release" ^
+    -after "OBJECTS_DIR=obj" "MOC_DIR=moc" "UI_DIR=ui" "RCC_DIR=rcc" || exit /b 1
+
+:: bldmake must be run explicitly. The generated Makefile has a
+::     $(ABLD): bld.inf
+::             bldmake bldfiles
+:: rule, but make runs every recipe line in its own shell and bldmake is
+:: itself a .bat, so ABLD.BAT is not visible to the next line and
+:: `make release-gcce` dies with "'ABLD.BAT' is not recognized". Running it
+:: here sidesteps that entirely.
+echo [2/4] bldmake bldfiles
+bldmake bldfiles || exit /b 1
+
+:: --- compile ------------------------------------------------------------
+echo [3/4] abld build gcce urel
+call ABLD.BAT build gcce urel || exit /b 1
+
+:: --- package ------------------------------------------------------------
+:: Always pass an explicit certificate. The SDK's bundled
+:: src\s60installs\selfsigned.cer dates from ~2011 and has long expired;
+:: Symbian validates against the DEVICE clock, so letting createpackage fall
+:: back to it produces an "expired certificate" install failure on the phone
+:: that looks like a signing bug but is not.
+echo [4/4] make sis
+set "CERT=%PROJ%\secrets\symbogram.cer"
+set "KEY=%PROJ%\secrets\symbogram.key"
+if not exist "%CERT%" (
+    echo FAILED: %CERT% missing. Generate with:
+    echo   openssl req -x509 -newkey rsa:2048 -sha256 -days 7300 -nodes ^
+-keyout secrets/symbogram.key -out secrets/symbogram.cer -subj "/CN=SymboGram/O=SymboGram/C=UA"
+    echo   openssl rsa -in secrets/symbogram.key -out secrets/symbogram.key -traditional
+    exit /b 1
+)
+make.exe sis QT_SIS_CERTIFICATE="%CERT%" QT_SIS_KEY="%KEY%" || exit /b 1
+
+:: --- collect ------------------------------------------------------------
+if not exist "%PROJ%\dist" mkdir "%PROJ%\dist"
+for /f %%v in ('git -C "%PROJ%" rev-parse --short HEAD') do set "SHA=%%v"
+for %%f in ("%WORK%\*.sis") do (
+    copy /y "%%f" "%PROJ%\dist\%%~nf-symbian1-%SHA%.sis" >nul
+    echo   dist\%%~nf-symbian1-%SHA%.sis
+)
+echo Done.
+endlocal

@@ -16,6 +16,10 @@
 #include <QSystemSemaphore>
 #include <QSharedMemory>
 
+// Two levels so the argument is macro-expanded before being stringified.
+#define KG_STRINGIFY_(x) #x
+#define KG_STRINGIFY(x) KG_STRINGIFY_(x)
+
 #if QT_VERSION >= 0x050000
 #include <QQmlContext>
 #include <QQmlEngine>
@@ -75,7 +79,9 @@ int main(int argc, char *argv[])
     QApplication::setAttribute(Qt::AA_UseOpenGLES, true);
 #endif
 
-    QApplication::setApplicationVersion(QString(VERSION).replace("\"", ""));
+    // VERSION arrives unquoted from the .pro (see the comment there: the
+    // escaped-quote form breaks the symbian-abld build), so stringify it here.
+    QApplication::setApplicationVersion(QString(KG_STRINGIFY(VERSION)));
     QApplication::setApplicationName("Kutegram");
     QApplication::setOrganizationName("Kutegram");
     QApplication::setOrganizationDomain("kg.crx.moe");
