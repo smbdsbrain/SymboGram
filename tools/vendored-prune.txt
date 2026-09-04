@@ -1,0 +1,33 @@
+# Paths deleted from the vendored trees after checkout at the pinned commits.
+# See docs/VENDORED.md. Nothing here is referenced by libkg.pri, mbedtls.pri,
+# headers.pri, zlib.pri or qt-json.pri; those .pri files enumerate every source
+# and header the build compiles. No remaining file has been edited.
+#
+# Reproduce: clone each dependency at its pinned commit, delete these paths.
+
+# --- mbedtls: test suites, sample programs, docs and MSVC/CI scaffolding ---
+libkg/mbedtls/tests
+libkg/mbedtls/programs
+libkg/mbedtls/docs
+libkg/mbedtls/doxygen
+libkg/mbedtls/visualc
+libkg/mbedtls/scripts
+libkg/mbedtls/ChangeLog.d
+libkg/mbedtls/.github
+
+# --- zlib: contributed bindings, docs, examples and foreign-platform ports ---
+libkg/zlib/contrib
+libkg/zlib/doc
+libkg/zlib/examples
+libkg/zlib/test
+libkg/zlib/win32
+libkg/zlib/msdos
+libkg/zlib/old
+libkg/zlib/nintendods
+libkg/zlib/watcom
+libkg/zlib/qnx
+libkg/zlib/amiga
+libkg/zlib/os400
+
+# --- qt-json: demo application ---
+libkg/qt-json/example
