@@ -23,6 +23,9 @@ ABLD.BAT
 # --- built binary (renamed from upstream's "Kutegram") ---
 SymboGram
 
+# --- desktop (Qt 4.8.7 / MinGW) shadow build, used for autonomous testing ---
+/build-desktop/
+
 # --- packaged artifacts ---
 /dist/
 
