@@ -27,7 +27,7 @@ jobs:
   audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # gitleaks scans history, and the audit's force-push check reads the
           # remote-tracking reflog.
@@ -55,8 +55,15 @@ jobs:
 
       # Catches credential formats the hand-written patterns do not know about,
       # and unlike the audit it looks at the whole history rather than the tip.
+      #
+      # Pinned to a commit, not to the v3 tag: this is third-party code running
+      # with read access to the repository, and a tag can be repointed at any
+      # time by whoever owns it. The first-party actions above stay on a major
+      # tag; dependabot (.github/dependabot.yml) proposes the bumps for both, so
+      # pinning does not mean going stale.
       - name: gitleaks
-        uses: gitleaks/gitleaks-action@v2
+        # v3.0.0
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e
         env:
           GITHUB_TOKEN: ${{ github.token }}
 

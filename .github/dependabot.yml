@@ -1,0 +1,17 @@
+# Actions go stale quietly, and a pinned SHA goes stale silently. This is what
+# keeps the pin in .github/workflows/audit.yml honest: the audit workflow is
+# the layer that runs on someone else's machine, so it is the one that must not
+# rot.
+#
+# Only github-actions. There is no package manifest to watch: dependencies here
+# are vendored source trees pinned to upstream commits, tracked by hand in
+# docs/VENDORED.md, and dependabot cannot reason about those.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "ci"
