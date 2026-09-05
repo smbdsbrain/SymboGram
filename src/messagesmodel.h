@@ -112,6 +112,9 @@ public slots:
 
     void gotMessageUpdate(TgObject update, TgLongVariant messageId);
     void gotUpdate(TgObject update, TgLongVariant messageId, TgList users, TgList chats, qint32 date, qint32 seq, qint32 seqStart);
+    void updatesReset();
+    void channelReset(TgLongVariant channelId);
+    void reloadHistory();
 
     bool canFetchMoreDownwards() const;
     void fetchMoreDownwards();

@@ -1,5 +1,7 @@
 #include "dialogsmodel.h"
 
+#include "debug.h"
+
 #include "tlschema.h"
 #include <QMutexLocker>
 #include <QColor>
@@ -122,6 +124,7 @@ void DialogsModel::setClient(QObject *client)
     connect(_client, SIGNAL(authorized(TgLongVariant)), this, SLOT(authorized(TgLongVariant)));
     connect(_client, SIGNAL(messagesDialogsResponse(TgObject,TgLongVariant)), this, SLOT(messagesGetDialogsResponse(TgObject,TgLongVariant)));
     connect(_client, SIGNAL(gotUpdate(TgObject,TgLongVariant,TgList,TgList,qint32,qint32,qint32)), this, SLOT(gotUpdate(TgObject,TgLongVariant,TgList,TgList,qint32,qint32,qint32)));
+    connect(_client, SIGNAL(updatesReset()), this, SLOT(updatesReset()));
 }
 
 QObject* DialogsModel::client() const
@@ -419,6 +422,17 @@ void DialogsModel::refresh()
 {
     resetState();
     fetchMoreDownwards();
+}
+
+void DialogsModel::updatesReset()
+{
+    // updates.differenceTooLong: the backlog was past the point where the
+    // server will enumerate it, so the pipeline skipped ahead rather than
+    // replaying. Everything in this list is from before that jump and nothing
+    // will arrive to correct it one row at a time.
+    kgInfo() << "Update sequence was reset, reloading the dialog list";
+
+    refresh();
 }
 
 bool DialogsModel::inFolder(qint32 index, qint32 folderIndex)

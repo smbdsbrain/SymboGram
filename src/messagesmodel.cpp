@@ -1,5 +1,7 @@
 #include "messagesmodel.h"
 
+#include "debug.h"
+
 #include "tlschema.h"
 #include <QMutexLocker>
 #include <QColor>
@@ -112,6 +114,8 @@ void MessagesModel::setClient(QObject *client)
     connect(_client, SIGNAL(fileDownloadCanceled(TgLongVariant,QString)), this, SLOT(fileDownloadCanceled(TgLongVariant,QString)));
     connect(_client, SIGNAL(gotMessageUpdate(TgObject,TgLongVariant)), this, SLOT(gotMessageUpdate(TgObject,TgLongVariant)));
     connect(_client, SIGNAL(gotUpdate(TgObject,TgLongVariant,TgList,TgList,qint32,qint32,qint32)), this, SLOT(gotUpdate(TgObject,TgLongVariant,TgList,TgList,qint32,qint32,qint32)));
+    connect(_client, SIGNAL(updatesReset()), this, SLOT(updatesReset()));
+    connect(_client, SIGNAL(channelReset(TgLongVariant)), this, SLOT(channelReset(TgLongVariant)));
     connect(_client, SIGNAL(fileUploading(TgLongVariant,TgLongVariant,TgLongVariant,qint32)), this, SLOT(fileUploading(TgLongVariant,TgLongVariant,TgLongVariant,qint32)));
     connect(_client, SIGNAL(fileUploaded(TgLongVariant,TgObject)), this, SLOT(fileUploaded(TgLongVariant,TgObject)));
     connect(_client, SIGNAL(fileUploadCanceled(TgLongVariant)), this, SLOT(fileUploadCanceled(TgLongVariant)));
@@ -162,6 +166,47 @@ void MessagesModel::setPeer(QByteArray bytes)
 QByteArray MessagesModel::peer() const
 {
     return qSerialize(_peer);
+}
+
+void MessagesModel::reloadHistory()
+{
+    if (EMPTY(_peer)) {
+        return;
+    }
+
+    // Re-enters through setPeer so the offsets, the pending download requests
+    // and the upload are all reset the same way opening the chat resets them.
+    // Reproducing that here is how the two drift apart.
+    setPeer(qSerialize(_peer));
+}
+
+void MessagesModel::updatesReset()
+{
+    QMutexLocker lock(&_mutex);
+
+    // The common sequence jumped rather than replayed, so anything shown for a
+    // private chat or a small group is from before the jump.
+    if (EMPTY(_peer) || TgClient::isChannel(_peer)) {
+        return;
+    }
+
+    lock.unlock();
+    kgInfo() << "Update sequence was reset, reloading the open chat";
+    reloadHistory();
+}
+
+void MessagesModel::channelReset(TgLongVariant channelId)
+{
+    QMutexLocker lock(&_mutex);
+
+    if (EMPTY(_peer) || !TgClient::isChannel(_peer)
+            || TgClient::getPeerId(_peer) != channelId) {
+        return;
+    }
+
+    lock.unlock();
+    kgInfo() << "Channel" << channelId << "sequence was reset, reloading the open chat";
+    reloadHistory();
 }
 
 int MessagesModel::rowCount(const QModelIndex &parent) const

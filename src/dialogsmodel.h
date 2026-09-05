@@ -82,6 +82,7 @@ public slots:
     bool inFolder(qint32 index, qint32 folderIndex);
 
     void gotUpdate(TgObject update, TgLongVariant messageId, TgList users, TgList chats, qint32 date, qint32 seq, qint32 seqStart);
+    void updatesReset();
     void gotMessageUpdate(TgObject update, TgLongVariant messageId);
 
 };
