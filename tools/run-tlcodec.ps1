@@ -53,8 +53,22 @@ try {
 $exe = Join-Path $build 'release\tlcodec.exe'
 if (-not (Test-Path $exe)) { throw "FAILED: tlcodec.exe was not produced" }
 
-& $exe
+$output = & $exe 2>&1
 $failures = $LASTEXITCODE
+$output | Write-Host
+
+# The exit code alone is not evidence that the suite ran. When the executable
+# cannot start -- blocked by policy, a missing runtime DLL, a half-written link
+# -- $LASTEXITCODE can still hold the value left by the previous command, and a
+# runner that trusts it reports success for a suite that produced nothing. The
+# plan line is the assertion that results actually exist.
+$plan = $output | Select-String -Pattern '^1\.\.(\d+)\s*$' | Select-Object -First 1
+if (-not $plan) {
+    throw "FAILED: no TAP plan line -- the suite produced no output, so its exit code means nothing"
+}
+if ([int] $plan.Matches[0].Groups[1].Value -eq 0) {
+    throw "FAILED: TAP plan is 1..0 -- no cases ran"
+}
 
 Write-Host ""
 if ($failures -eq 0) {

@@ -1,20 +1,20 @@
 <#
 .SYNOPSIS
-    Builds and runs the offline MTProto crypto tests (test tier 0).
+    Builds and runs the offline update-sequence tests (test tier 0).
 
 .DESCRIPTION
-    No network, no credentials, no phone. Builds tests/crypto against
-    libkg/crypto.cpp and the vendored mbedtls only -- deliberately not the
-    whole of libkg, which would drag in apisecrets.h -- and runs it.
+    No network, no credentials, no phone. Builds tests/updates against
+    libkg/tgupdatesstate.cpp and the generated schema only -- deliberately not
+    the whole of libkg, which would drag in apisecrets.h -- and runs it.
 
     Output is TAP 13 on stdout; the exit code is the number of failures.
 
-    What this tier is for: key derivation reads a different 32-byte fragment of
-    the auth key per direction, and a wrong fragment produces a key that is
-    perfectly well-formed and completely wrong. The expected values are
-    computed independently from the specification rather than by the code under
-    test, because a self-consistent implementation agrees with itself whether or
-    not it agrees with Telegram.
+    What this tier is for: the pts and seq rules decide, for every update
+    Telegram pushes, whether it is applied, dropped as already seen, or treated
+    as evidence that something in front of it never arrived. All three verdicts
+    are arithmetic over values the client already holds, so none of it needs a
+    server -- and a rule that can only be exercised against one is a rule that
+    gets exercised once.
 #>
 [CmdletBinding()]
 param(
@@ -34,9 +34,9 @@ foreach ($p in @((Join-Path $QtDir 'bin\qmake.exe'), (Join-Path $MinGWDir 'bin\g
 }
 $env:PATH = "$QtDir\bin;$MinGWDir\bin;$env:PATH"
 
-$pro   = Join-Path $RepoRoot 'tests\crypto\crypto.pro'
+$pro   = Join-Path $RepoRoot 'tests\updates\updates.pro'
 # Under build-desktop/, which .gitignore already covers.
-$build = Join-Path $RepoRoot 'build-desktop\crypto'
+$build = Join-Path $RepoRoot 'build-desktop\updates'
 
 if ($Clean -and (Test-Path $build)) { Remove-Item -Recurse -Force $build }
 New-Item -ItemType Directory -Force -Path $build | Out-Null
@@ -49,8 +49,8 @@ try {
     if ($LASTEXITCODE) { $log | Write-Host; throw "make failed ($LASTEXITCODE)" }
 } finally { Pop-Location }
 
-$exe = Join-Path $build 'release\crypto.exe'
-if (-not (Test-Path $exe)) { throw "FAILED: crypto.exe was not produced" }
+$exe = Join-Path $build 'release\updates.exe'
+if (-not (Test-Path $exe)) { throw "FAILED: updates.exe was not produced" }
 
 $output = & $exe 2>&1
 $failures = $LASTEXITCODE
@@ -72,8 +72,8 @@ if ([int] $plan.Matches[0].Groups[1].Value -eq 0) {
 Write-Host ""
 if ($failures -eq 0) {
     Write-Host "tier 0 green." -ForegroundColor Green
-    Write-Host "Covers key derivation per direction and the IGE block-length check."
-    Write-Host "Does NOT cover: the handshake, the transport, the network, or the device."
+    Write-Host "Covers the pts and seq verdicts, channel separation and state persistence."
+    Write-Host "Does NOT cover: difference fetching, the network, the models, or the device."
 } else {
     Write-Host "$failures failure(s)." -ForegroundColor Red
 }
