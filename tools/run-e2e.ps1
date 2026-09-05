@@ -121,16 +121,13 @@ foreach ($s in $scenarios) {
               "--phone=$Phone", "--deadline=$DeadlineSeconds")
     if ($Code) { $argv += "--code=$Code" }
 
-    # Tee rather than pipe: the operator should see the run as it happens, and
-    # a step SKIP is reported inside a scenario that still exits 0, so counting
-    # exit codes alone would report "all passed" over a skipped assertion.
+    # Capture as well as display: a step SKIP is reported inside a scenario that
+    # still exits 0, so counting exit codes alone would call a skipped assertion
+    # a pass.
     $captured = & $exe @argv 2>&1
-    # NOT $code: PowerShell variable names are case-insensitive, so $code and
-    # the -Code parameter are one variable. Assigning the exit code here
-    # overwrote -Code with 0, and every scenario after the first was launched
-    # with --code=0 -- which the harness correctly treated as an operator
-    # override and so reported a real failure instead of a skip. The suite was
-    # right; the runner was lying to it.
+    # $exitCode, never $code. PowerShell variable names are case-insensitive, so
+    # $code would be the same variable as the -Code parameter, and assigning
+    # here would silently rewrite the caller's login-code override.
     $exitCode = $LASTEXITCODE
     $captured | ForEach-Object { Write-Host $_ }
     $stepSkips = @($captured | Where-Object { "$_" -match '# SKIP' }).Count

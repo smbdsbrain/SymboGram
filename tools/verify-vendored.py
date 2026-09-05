@@ -91,8 +91,8 @@ def owned_files(prefix, all_prefixes):
     The trees nest: libkg/zlib, libkg/mbedtls and libkg/qt-json all live inside
     libkg, and tools/tl-generator/qt-json inside tools/tl-generator. Upstream
     had them as submodules, so a clone of libkg does not contain zlib's files
-    at all. Without this exclusion every nested file reports as "not upstream"
-    -- 363 false positives on the first run of this check."""
+    at all. Without this exclusion every nested file reports as "not upstream",
+    several hundred times over."""
     nested = [p for p in all_prefixes if p != prefix and p.startswith(prefix + "/")]
     out = []
     for rel in tracked_files(prefix):

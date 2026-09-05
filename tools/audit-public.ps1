@@ -281,8 +281,8 @@ $credentialPatterns = @(
 # Each element is parenthesised deliberately. PowerShell binds "," TIGHTER than
 # "+", so without the parentheses this builds ONE space-joined string instead of
 # a list, and the whole check silently matches nothing while still reporting
-# green. That is not hypothetical: it shipped here and was caught only by the
-# negative test in docs/security.md.
+# green. tools/test-audit.ps1 and the negative tests in docs/security.md are
+# what keep that visible.
 $u = "Users"
 $h = "home"
 $personalPatterns = @(

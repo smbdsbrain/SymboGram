@@ -47,11 +47,9 @@ Two assertion strengths, and the difference matters:
 
 Four of the nine cases are **deliberate-failure controls** — truncated buffer,
 trailing bytes, an unknown top-level id, and an unknown id nested inside a
-`Vector`. They assert the checks report the *right* failure. Without them a
-suite that asserts nothing still prints nine green lines. That is not a
-hypothetical: `docs/security.md` records three checks in `audit-public.ps1`
-that shipped reporting green while testing nothing, and only deliberate-failure
-tests found them. Add a control with every new assertion.
+`Vector`. They assert the checks report the *right* failure. A suite that
+asserts nothing prints green lines too, and the controls are the only thing
+that tells the two apart. Add one with every new assertion.
 
 `gen-schema.ps1 -Check` is the reproduction gate: the committed
 `libkg/tlschema.*` and `libkg/mtschema.*` must be byte for byte what the pinned
@@ -108,10 +106,10 @@ six-digit forms.
 
 This is not a SymboGram defect. An independent Telethon client, at a current
 layer and with an entirely separate TL implementation, gets the identical error
-against DCs 1, 2 and 3. That check is what `tools/e2e-oracle/` exists for, and
-it earned its place on its first run: without it the obvious reading would have
-been "our `auth.signIn` serialisation is broken at 229", which would have been
-wrong. (`auth.signIn` is byte-identical between layers 166 and 229 — checked.)
+against DCs 1, 2 and 3 — which is what `tools/e2e-oracle/` is for. Absent that
+second opinion the natural reading would be "our `auth.signIn` serialisation
+broke at 229"; it did not, and `auth.signIn` is byte-identical between layers
+166 and 229.
 
 So the harness reports that step as **`# SKIP`**, not as a failure. A skip is an
 assertion that did not run; the runner counts them separately and says so,
@@ -154,12 +152,11 @@ work around that: `TgTransport::handleRpcError` calls `resetSession()` on any
 expired-session run.
 
 **Covers:** the real schema as the real server emits it — the only tier that can
-discover that a layer no longer parses what production sends. It is the tier
-that found the layer-229 `messages.getDialogFilters` break: the method's return
-type changed from `Vector<DialogFilter>` to a boxed `messages.DialogFilters`,
-which no constructor diff can show, because a method's return type is not part
-of any constructor definition. Folders silently never loaded, and only a real
-server said so.
+discover that a layer no longer parses what production sends. A method's return
+type is not part of any constructor definition, so a schema diff cannot show it
+changing — `messages.getDialogFilters` went from `Vector<DialogFilter>` to a
+boxed `messages.DialogFilters` at 229, and only a live server reveals that class
+of change.
 **Does not cover:** login, signup, 2FA, or anything needing a second real
 account.
 

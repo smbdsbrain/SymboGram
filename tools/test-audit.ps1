@@ -3,15 +3,11 @@
     Deliberate-failure tests for tools/audit-public.ps1.
 
 .DESCRIPTION
-    An audit that never fails is indistinguishable from one that checks nothing.
-    That is not a slogan here: docs/security.md records three checks in this
-    very file that shipped reporting green while testing nothing, and only
-    deliberate-failure cases found them.
-
-    So every check gets a control that proves it can go red. This script
-    automates the ones that can be automated -- in particular the two added
-    for recorded TL vectors, where the failure mode is a leak rather than a
-    build break:
+    An audit that never fails is indistinguishable from one that checks nothing,
+    so every check gets a control that proves it can go red. This script
+    automates the ones that can be automated -- in particular the two for
+    recorded TL vectors, where the failure mode is a leak rather than a build
+    break:
 
       (k) hex-encoded content is decoded and re-scanned
       (l) every file under tests/vectors/ declares where its bytes came from
@@ -114,11 +110,11 @@ try {
 }
 
 # --- (k) hex-decoded differential -------------------------------------------
-# Every harvested value, not just one. The first attempt tested $secrets[0],
-# which happened to be the 8-digit api_id; its hex expansion is 16 characters
-# and the check's floor was 32, so the control went red and exposed a real hole
-# rather than a scripting slip. Testing all of them is what stops a future
-# short secret from silently falling under the floor.
+# Every harvested value, not a representative one. Check (k) can only see a
+# value whose hex expansion clears its 16-character floor, and the shortest
+# harvested value today -- an 8-digit api_id -- expands to exactly 16. Testing
+# all of them is what stops a shorter secret added later from falling under the
+# floor unnoticed.
 $secrets = @(Get-LocalSecretValues | Where-Object { $_.Severity -ne "warn" })
 if ($secrets.Count -eq 0) {
     Write-Host "  SKIP  (k) hex-encoded secrets are caught - no local secrets present" -ForegroundColor Yellow

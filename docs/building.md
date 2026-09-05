@@ -114,17 +114,16 @@ This failure appears **only on the Symbian target**. The desktop build links a
 1.9 MB `tlschema.cpp` without complaint, so "the desktop build is green" says
 nothing about it.
 
-### `abld` lies about failing
+### `abld` does not report link failures
 
-`abld` is a Perl wrapper that shells out to `make` and does not propagate its
-exit code: the link can fail with `Error 1` and `abld` still returns 0. The
-first layer-229 build hit exactly that — the link failed, and the script
-carried on to scan the **stale** `.exe` from the previous build and package it
-as if it were the new one, exiting successfully.
+`abld` is a Perl wrapper around `make` and does not propagate its exit code:
+the link can fail and `abld` still returns 0, so a `||` guard after it never
+fires. Left alone, the build would continue with whatever `.exe` happened to be
+on disk from an earlier run.
 
-`tools\build-symbian.cmd` now deletes the target before calling `abld` and
-checks the file exists afterwards, so "did the link succeed" is a question for
-the filesystem rather than for `abld`. If you see
+`tools\build-symbian.cmd` therefore deletes the target before calling `abld` and
+checks the file exists afterwards, so whether the link succeeded is a question
+for the filesystem rather than for `abld`. If you see
 
 ```
 FAILED: abld reported success but produced no SymboGram.exe.
@@ -132,36 +131,37 @@ FAILED: abld reported success but produced no SymboGram.exe.
 
 scroll up for the real error; `abld` swallowed it.
 
-### Why the artifact scan runs before packaging, and on which file
+### Which file the artifact scan reads
 
 Two layers of compression sit between the linker and the installer, and a
 substring search sees through neither.
 
-`make sis` deflate-compresses the payload, so searching `dist\*.sis` for a
-known-embedded string finds nothing on a package that provably carries it.
-That much was always recorded here. What was missed is that `abld` runs the
-linker output through `elftran`, and the **E32 image in
-`epoc32\release\gcce\urel\` is compressed too** -- byte-pair, compression UID
-`0x102822AA` at offset `0x1C` of the `E32ImageHeader`, 1.9 MB from a 4.0 MB
-ELF. Scanning that read compressed bytes and reported clean on everything.
+`make sis` deflate-compresses its payload, so searching `dist\*.sis` for a
+known-embedded string finds nothing on a package that carries it. Less
+obviously, `abld` runs the linker output through `elftran`, and the E32 image
+in `epoc32\release\gcce\urel\` is **byte-pair compressed** as well --
+compression UID `0x102822AA` at offset `0x1C` of the `E32ImageHeader`, 1.9 MB
+from a 4.0 MB ELF. A substring search over either reads compressed bytes.
 
-So the scan runs against
-`epoc32\BUILD\SymboGram\SYMBOGRAM_EXE\GCCE\urel\SymboGram.exe` -- the raw ELF,
-before `elftran`. Same code, uncompressed, and the only form a substring search
-can actually read. `build-symbian.cmd` refuses to package if that file is
-missing rather than falling back to a scan it cannot trust.
+So the scan runs against the raw ELF, before `elftran`:
 
-**How this was caught:** `scan-artifact.ps1` *expects* the `api_hash` to be
-present and warns when it is not, on the grounds that its absence probably
-means `apisecrets.h` never reached the link. That warning appearing was the
-only signal anything was wrong. It is a canary, not decoration -- do not
-silence it.
+```
+epoc32\BUILD\SymboGram\SYMBOGRAM_EXE\GCCE\urel\SymboGram.exe
+```
 
-To confirm the scan is live on a given file, append a line containing this
-machine's own home directory to a **copy** of the ELF and check the scan
-exits 1. The literal form is not written out here on purpose: a document
-containing an example of what the audit looks for is rejected by the audit --
-which is exactly what happened when this paragraph first quoted one.
+Same code, uncompressed, and the only form a substring search can read.
+`build-symbian.cmd` refuses to package if that file is absent rather than
+falling back to a target it cannot scan.
+
+`scan-artifact.ps1` expects the `api_hash` to be present in the binary and
+warns when it is not. Treat that warning as a signal that the scan is pointed
+at the wrong file, or that `apisecrets.h` never reached the link -- not as
+noise to silence.
+
+To confirm the scan is live on a given file, append this machine's own home
+directory to a **copy** and check it exits 1. The literal form is not written
+out here on purpose: a document containing an example of what the audit looks
+for is rejected by the audit.
 
 ```powershell
 Copy-Item <the ELF> $env:TEMP\ctrl.bin

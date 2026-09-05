@@ -57,13 +57,11 @@ compiles the vendored sources against an argv-driven `main` instead, so the
 layer and the schema can be chosen at run time while the pinned tree stays
 byte-verifiable. `tools/gen-schema.ps1` drives it.
 
-Verified faithful before the layer was raised: regenerating layer 166 from
-`tools/tl-generator/api.tl` reproduced all four then-committed files exactly,
-byte for byte after the LF→CRLF conversion `gen-schema.ps1` performs. That is
-what established the pipeline can be trusted, and it is the reason the 229 bump
-was a readable diff rather than a rewrite of every line.
+The pipeline is verifiable against a known result: regenerating layer 166 from
+`tools/tl-generator/api.tl` reproduces the four files as they stood before the
+bump, byte for byte after the LF→CRLF conversion `gen-schema.ps1` performs.
 
-To repeat that proof, check out the last commit before the bump and run
+To run that check, check out the last commit before the bump and run
 
     pwsh -File tools\gen-schema.ps1 -Check -Layer 166 -Api tools\tl-generator\api.tl
 
@@ -94,9 +92,8 @@ paths in that file.
 `mbedtls`, `zlib`, `qt-json`, `pigler` and `tl-generator` are unedited: every
 remaining file is byte-identical to its pinned commit.
 
-**`libkg/` is not.** It is a fork rather than a pinned dependency — the rename
-to SymboGram lands in it by definition — and an earlier version of this file
-claimed otherwise for all six trees. Five files differ:
+**`libkg/` is not.** It is a fork rather than a pinned dependency, so the rename
+to SymboGram lands in it by definition. Five files differ:
 
 | File | Change |
 |---|---|

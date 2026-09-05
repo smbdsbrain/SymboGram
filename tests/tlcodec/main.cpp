@@ -62,10 +62,9 @@ static const TlCase kCases[] = {
       (void*) &readTLMessageEntity, (void*) &writeTLMessageEntity, HEX_ENTITY_VECTOR, TlExact },
 };
 
-// Cases whose expected outcome is a FAILURE. Without these the suite could be
-// reporting green while asserting nothing -- which is not hypothetical here:
-// three checks in tools/audit-public.ps1 shipped in exactly that state, and
-// docs/security.md records that only deliberate-failure tests found them.
+// Cases whose expected outcome is a FAILURE. A suite that asserts nothing
+// prints green lines too; these are what tell the two apart, so add one
+// alongside every new assertion.
 struct TlControl {
     const char  *name;
     READ_METHOD  read;

@@ -80,11 +80,11 @@ It is not restricted to `tests/vectors/`: a packet pasted into a Markdown file
 or a C++ string literal leaks just as well.
 
 The 16-character floor is 8 bytes, and it is load-bearing. Every value the
-differential check harvests must expand above it or (k) cannot see the value at
-all; the shortest today is an 8-digit `api_id`, expanding to exactly 16. The
-first version of this used a 32-character floor and silently missed both the
-`api_id` and the `UserId` — caught only because `tools/test-audit.ps1` tests
-**every** harvested value rather than one of them.
+differential check harvests must expand above it or (k) cannot see that value at
+all; the shortest today is an 8-digit `api_id`, expanding to exactly 16. A
+secret shorter than eight characters would fall under the floor unnoticed, which
+is why `tools/test-audit.ps1` exercises **every** harvested value rather than a
+representative one. Keep it that way when adding a secret.
 
 What (k) cannot do is recognise somebody's chat title, because a real one looks
 like any other text. That is what (l) is for: a vector must say where its bytes
@@ -180,21 +180,15 @@ through a digest rather than a value.
 > **Scan the uncompressed ELF, not the E32 image and not the `.sis`.**
 > Two layers of compression sit between the linker and the installer and a
 > substring search sees through neither. A SIS deflate-compresses its payload,
-> so searching `dist/*.sis` for the `api_hash` finds nothing on a package that
-> provably contains it. Less obviously, `abld` runs the linker output through
-> `elftran` and the E32 image in `epoc32\release\` is **byte-pair compressed**
-> as well (compression UID `0x102822AA`, 1.9 MB from a 4.0 MB ELF) -- so the
-> scan that ran there was reading compressed bytes and reporting clean on
-> everything. That is the third check in this repository to have shipped green
-> while testing nothing.
->
-> The Symbian scan therefore runs on the raw ELF at
-> `epoc32\BUILD\SymboGram\SYMBOGRAM_EXE\GCCE\urel\SymboGram.exe`, after
+> and the E32 image `elftran` produces in `epoc32\release\` is byte-pair
+> compressed as well (compression UID `0x102822AA`, 1.9 MB from a 4.0 MB ELF).
+> The Symbian scan therefore runs on the raw ELF under `epoc32\BUILD\`, after
 > `abld build` and before `make sis`, and `build-symbian.cmd` refuses to
-> package if that file is absent rather than scanning something it cannot read.
+> package if that file is absent rather than scanning a target it cannot read.
 >
-> It was caught by the scanner's own canary: it *expects* the `api_hash` to be
-> present and warns when it is not. Do not silence that warning.
+> `scan-artifact.ps1` expects the `api_hash` to be present and warns when it is
+> not. That warning means the scan is pointed at the wrong file, or that
+> `apisecrets.h` never reached the link. Do not silence it.
 
 The honest way to publish binaries is to build them where there is nothing
 personal to embed. That needs a CI runner with the Symbian^1 / Qt 4.7.3 SDK,
@@ -202,11 +196,10 @@ which GitHub-hosted runners cannot provide. Until then, source only.
 
 ## Verifying the audit still works
 
-An audit that never fails is indistinguishable from one that checks nothing.
-Three defects during this setup each reported green while checking nothing, and
-only these tests found them. A fourth was found the same way afterwards: check
-(k) shipped with a hex-run floor that its own control immediately proved too
-high. Re-run this after touching `.gitignore` or the audit.
+An audit that never fails is indistinguishable from one that checks nothing, so
+every check here has a case that makes it fail on purpose. Re-run these after
+touching `.gitignore` or the audit, and add a control alongside any new check --
+a check without one cannot be told apart from a check that matches nothing.
 
 The controls for (k) and (l) are automated, including one that hex-encodes each
 real local secret without ever printing it:

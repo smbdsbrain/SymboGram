@@ -106,11 +106,8 @@ call bldmake bldfiles || exit /b 1
 :: --- compile ------------------------------------------------------------
 :: abld is a Perl wrapper that shells out to make and does NOT propagate make's
 :: exit code: the link can fail with "Error 1" and abld still returns 0, so the
-:: `||` below never fires. That is not hypothetical. Raising the API layer to
-:: 229 grew tlschema.o from 3.8 MB to 5.8 MB until .ARM.extab overlapped .data
-:: and the link failed -- and this script sailed straight past it, scanned the
-:: STALE .exe left by the previous build, and packaged that as if it were this
-:: one. A green run that ships the wrong binary is worse than a red one.
+:: `||` below never fires on its own. Left unchecked the build carries on with
+:: whatever .exe is already on disk and packages that instead.
 ::
 :: So do not ask abld whether it succeeded. Delete the target first and ask the
 :: filesystem afterwards.
@@ -129,21 +126,19 @@ if not exist "%TARGETEXE%" (
 
 :: Scan the UNCOMPRESSED linker output, not the packaged artifacts.
 ::
-:: The original reasoning here was right and stopped one layer too early. A SIS
-:: deflate-compresses its payload, so searching dist\*.sis finds nothing on a
-:: binary that provably carries the string -- hence scanning the .exe instead.
-:: But `abld` runs the linker output through elftran, and the E32 image it
-:: produces in epoc32\release is ALSO compressed: byte-pair, compression UID
-:: 0x102822AA at offset 0x1C of the E32ImageHeader. 1.9 MB compressed from a
-:: 4.0 MB ELF. A substring search over that reads compressed bytes and finds
-:: nothing -- so this gate was reporting green while checking nothing, which is
-:: the exact failure docs/security.md warns about twice.
-::
-:: Caught because scan-artifact.ps1 EXPECTS the api_hash and warns when it is
-:: missing. That warning is not decoration; it is the canary for this.
+:: Two layers of compression sit between here and the installer, and a substring
+:: search sees through neither. A SIS deflate-compresses its payload, so
+:: searching dist\*.sis finds nothing on a binary that carries the string. Less
+:: obviously, abld runs the linker output through elftran and the E32 image in
+:: epoc32\release is byte-pair compressed too: compression UID 0x102822AA at
+:: offset 0x1C of the E32ImageHeader, 1.9 MB from a 4.0 MB ELF.
 ::
 :: epoc32\BUILD\...\urel\SymboGram.exe is the raw ELF, before elftran. Same
-:: bytes, uncompressed, and it is what a substring search can actually see.
+:: bytes, uncompressed, and the only form a substring search can read.
+::
+:: scan-artifact.ps1 expects the api_hash to be present and warns when it is
+:: not. That warning means the scan is aimed at the wrong file, or that
+:: apisecrets.h never reached the link. Do not silence it.
 set "LINKEDELF=%SDK%\epoc32\BUILD\%PROJNAME%\SYMBOGRAM_EXE\GCCE\urel\SymboGram.exe"
 if not exist "%LINKEDELF%" (
     echo FAILED: no uncompressed ELF at %LINKEDELF%

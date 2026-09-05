@@ -396,14 +396,13 @@ void TgClient::handleObject(QByteArray data, qint64 messageId)
     //Layer 229 changed what messages.getDialogFilters RETURNS. At 166 it was a
     //bare Vector<DialogFilter>, which handleVector() below routes by looking at
     //the first element. At 229 it is a boxed messages.DialogFilters carrying
-    //the vector in a `filters` field plus a tags_enabled flag -- so the reply
-    //no longer starts with the vector constructor, falls through to
-    //unknownResponse, and the folder list silently never arrives.
+    //the vector in a `filters` field plus a tags_enabled flag, so the reply no
+    //longer starts with the vector constructor and would fall through to
+    //unknownResponse with the folder list never arriving.
     //
-    //Worth noting how this was found: a method's return type is not part of any
-    //constructor definition, so diffing constructors between layers does not
-    //show it. Only running against a real server did. Unbox here and emit the
-    //same signal, so FoldersModel needs no change.
+    //A method's return type is not part of any constructor definition, so a
+    //schema diff cannot show this class of change; only a live server does.
+    //Unbox here and emit the same signal, so FoldersModel needs no change.
     case TLType::MessagesDialogFilters:
     {
         TgObject box = tlDeserialize<&readTLMessagesDialogFilters>(data).toMap();
