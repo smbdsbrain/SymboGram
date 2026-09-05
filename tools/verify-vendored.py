@@ -233,8 +233,18 @@ def online(pins):
                 ours = os.path.join(REPO, rel)
                 theirs = os.path.join(tmp, rel[len(prefix) + 1:])
                 if not os.path.exists(theirs):
-                    print("not-upstr :: %s" % rel)
-                    bad += 1
+                    # A file upstream does not have. libkg/ is a fork rather
+                    # than a pinned dependency, so first-party files land in
+                    # it -- and adding one is a change the GPL-3.0 obligation
+                    # covers just as much as editing one. Declared in
+                    # vendored-edited.txt with its reason, it is accounted
+                    # for; undeclared, it still fails.
+                    if rel in declared:
+                        print("added     :: %s" % rel)
+                        accounted.add(rel)
+                    else:
+                        print("not-upstr :: %s" % rel)
+                        bad += 1
                 elif sha256(ours) != sha256(theirs):
                     # libkg/ was renormalised to CRLF during the rename while
                     # upstream is LF, so a byte difference is usually nothing

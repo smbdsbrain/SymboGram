@@ -42,3 +42,50 @@ libkg/tgclient.h
 #             be exactly 20 bytes; "symbogram_random_lol_" would have been 21
 #             and silently truncated. A comment now records that constraint.
 libkg/crypto.cpp
+
+# --- libkg: inbound MTProto verification ---
+# tgtransport.{h,cpp}  processMessage decrypted a packet and parsed it without
+#                      checking auth_key_id, msg_key, session_id, msg_id or the
+#                      declared body length. msg_key verification is the whole
+#                      of MTProto 2.0's integrity guarantee, and without it the
+#                      generated readers -- a switch with no default: case --
+#                      dispatch on bytes chosen by whoever can write to the
+#                      socket. Also the seq_no accounting and the ack path.
+# crypto.{h,cpp}       calcMessageKey takes the direction it derives from: the
+#                      two read different 32-byte fragments of the auth key and
+#                      it had only the outbound one, so it could not verify
+#                      anything. decryptAES256IGE no longer returns an
+#                      uninitialised buffer when mbedtls refuses the input.
+# tgstream.{h,cpp}     readFully sized its buffer from a signed length prefix
+#                      taken off the wire, with no upper bound.
+libkg/crypto.h
+libkg/tgstream.h
+libkg/tgstream.cpp
+
+# --- libkg: reconnect, updates and the local cache ---
+# tgtransport.{h,cpp}  reconnect policy lived in QML and retried at the speed
+#                      of the event loop. The transport now backs off, times
+#                      out a connect that never completes, and reports one drop
+#                      once instead of two or three times.
+# tgclient.{h,cpp}     owns the update pipeline and the cache, and routes every
+#                      Updates constructor through the former.
+# libkg.pri            lists the new translation units below.
+#
+#
+# New files, first-party rather than upstream's. Adding one to a fork is a
+# change the same obligation covers, so they are declared here too:
+# tgupdatesstate.{h,cpp}  the pts/qts/seq rules, with no I/O, so tests/updates
+#                         can link them without apisecrets.h.
+# tgupdates.{h,cpp}       the pipeline: gap detection, difference recovery,
+#                         channel polling.
+# tgc_updates.cpp         updates.getState / getDifference / getChannelDifference,
+#                         following the tgc_<namespace>.cpp convention.
+# tgstore.{h,cpp}         the optional SQLite cache.
+libkg/libkg.pri
+libkg/tgupdatesstate.h
+libkg/tgupdatesstate.cpp
+libkg/tgupdates.h
+libkg/tgupdates.cpp
+libkg/tgc_updates.cpp
+libkg/tgstore.h
+libkg/tgstore.cpp
