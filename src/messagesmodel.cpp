@@ -108,6 +108,8 @@ void MessagesModel::setClient(QObject *client)
 
     if (!_client) return;
 
+    peerCache().setStore(_client->store());
+
     connect(_client, SIGNAL(authorized(TgLongVariant)), this, SLOT(authorized(TgLongVariant)));
     connect(_client, SIGNAL(messagesMessagesResponse(TgObject,TgLongVariant)), this, SLOT(messagesGetHistoryResponse(TgObject,TgLongVariant)));
     connect(_client, SIGNAL(fileDownloaded(TgLongVariant,QString)), this, SLOT(fileDownloaded(TgLongVariant,QString)));
@@ -306,8 +308,7 @@ void MessagesModel::handleHistoryResponse(TgObject data, TgLongVariant messageId
     TgList chats = data["chats"].toList();
     TgList users = data["users"].toList();
 
-    globalUsers().append(users);
-    globalChats().append(chats);
+    peerCache().put(users, chats);
 
     if (messages.isEmpty()) {
         _downOffset = -1;
@@ -387,8 +388,7 @@ void MessagesModel::handleHistoryResponseUpwards(TgObject data, TgLongVariant me
     TgList chats = data["chats"].toList();
     TgList users = data["users"].toList();
 
-    globalUsers().append(users);
-    globalChats().append(chats);
+    peerCache().put(users, chats);
 
     if (messages.isEmpty()) {
         _upOffset = -1;
@@ -887,21 +887,7 @@ void MessagesModel::gotMessageUpdate(TgObject update, TgLongVariant messageId)
         return;
     }
 
-    TgObject sender;
-    for (qint32 j = 0; j < globalUsers().size(); ++j) {
-        TgObject peer = globalUsers()[j].toMap();
-        if (TgClient::getPeerId(peer) == fromIdNumeric) {
-            sender = peer;
-            break;
-        }
-    }
-    if (ID(sender) == 0) for (qint32 j = 0; j < globalChats().size(); ++j) {
-        TgObject peer = globalChats()[j].toMap();
-        if (TgClient::getPeerId(peer) == fromIdNumeric) {
-            sender = peer;
-            break;
-        }
-    }
+    TgObject sender = peerCache().byId(fromIdNumeric);
 
     if (TgClient::isChannel(sender)) {
         ID_PROPERTY(fromId) = TLType::PeerChannel;
@@ -920,7 +906,9 @@ void MessagesModel::gotMessageUpdate(TgObject update, TgLongVariant messageId)
     qint32 oldSize = _history.size();
 
     beginInsertRows(QModelIndex(), _history.size(), _history.size());
-    TgObject messageRow = createRow(update, sender, globalUsers(), globalChats());
+    // Empty lists: this update carried none, and resolvePeer inside falls
+    // through to the cache for anything it needs to name.
+    TgObject messageRow = createRow(update, sender, TgList(), TgList());
     _history.append(messageRow);
     endInsertRows();
 
@@ -940,9 +928,9 @@ void MessagesModel::gotUpdate(TgObject update, TgLongVariant messageId, TgList u
 {
     QMutexLocker lock(&_mutex);
 
-    //We should avoid duplicates. (implement DB)
-//    _globalUsers.append(users);
-//    _globalChats.append(chats);
+    // Keyed by id, so a peer that arrives with every update is stored once
+    // rather than appended again each time.
+    peerCache().put(users, chats);
 
     switch (ID(update)) {
     case TLType::UpdateNewMessage:

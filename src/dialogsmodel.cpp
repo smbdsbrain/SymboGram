@@ -121,6 +121,8 @@ void DialogsModel::setClient(QObject *client)
 
     if (!_client) return;
 
+    peerCache().setStore(_client->store());
+
     connect(_client, SIGNAL(authorized(TgLongVariant)), this, SLOT(authorized(TgLongVariant)));
     connect(_client, SIGNAL(messagesDialogsResponse(TgObject,TgLongVariant)), this, SLOT(messagesGetDialogsResponse(TgObject,TgLongVariant)));
     connect(_client, SIGNAL(gotUpdate(TgObject,TgLongVariant,TgList,TgList,qint32,qint32,qint32)), this, SLOT(gotUpdate(TgObject,TgLongVariant,TgList,TgList,qint32,qint32,qint32)));
@@ -213,8 +215,7 @@ void DialogsModel::messagesGetDialogsResponse(TgObject data, TgLongVariant messa
     TgList usersList = data["users"].toList();
     TgList chatsList = data["chats"].toList();
 
-    globalUsers().append(usersList);
-    globalChats().append(chatsList);
+    peerCache().put(usersList, chatsList);
 
     if (dialogsList.isEmpty()) {
         _offsets = TgObject();
@@ -492,21 +493,7 @@ void DialogsModel::gotMessageUpdate(TgObject update, TgLongVariant messageId)
         return;
     }
 
-    TgObject sender;
-    for (qint32 j = 0; j < globalUsers().size(); ++j) {
-        TgObject peer = globalUsers()[j].toMap();
-        if (TgClient::getPeerId(peer) == fromIdNumeric) {
-            sender = peer;
-            break;
-        }
-    }
-    if (ID(sender) == 0) for (qint32 j = 0; j < globalChats().size(); ++j) {
-        TgObject peer = globalChats()[j].toMap();
-        if (TgClient::getPeerId(peer) == fromIdNumeric) {
-            sender = peer;
-            break;
-        }
-    }
+    TgObject sender = peerCache().byId(fromIdNumeric);
 
     if (TgClient::isChannel(sender)) {
         ID_PROPERTY(fromId) = TLType::PeerChannel;
@@ -522,7 +509,9 @@ void DialogsModel::gotMessageUpdate(TgObject update, TgLongVariant messageId)
     update["peer_id"] = peerId;
     update["from_id"] = fromId;
 
-    handleDialogMessage(_dialogs[rowIndex], update, sender, globalUsers(), globalChats());
+    // Empty lists: this update carried none, and resolvePeer inside falls
+    // through to the cache for anything it needs to name.
+    handleDialogMessage(_dialogs[rowIndex], update, sender, TgList(), TgList());
     emit dataChanged(index(rowIndex), index(rowIndex));
 
     prepareNotification(_dialogs[rowIndex]);
@@ -541,9 +530,9 @@ void DialogsModel::gotUpdate(TgObject update, TgLongVariant messageId, TgList us
 {
     QMutexLocker lock(&_mutex);
 
-    //We should avoid duplicates. (implement DB)
-//    _globalUsers.append(users);
-//    _globalChats.append(chats);
+    // Keyed by id, so a peer that arrives with every update is stored once
+    // rather than appended again each time.
+    peerCache().put(users, chats);
 
     switch (ID(update)) {
     case TLType::UpdateNewMessage:

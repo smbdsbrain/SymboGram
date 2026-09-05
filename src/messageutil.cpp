@@ -4,18 +4,130 @@
 #include "tgclient.h"
 #include <QDateTime>
 
-//TODO use SQLite
-TgList _globalUsers;
-TgList _globalChats;
+#include "tgstore.h"
 
-TgList& globalUsers()
+TgPeerCache::TgPeerCache()
+    : _users()
+    , _chats()
+    , _userOrder()
+    , _chatOrder()
+    , _store(0)
 {
-    return _globalUsers;
 }
 
-TgList& globalChats()
+void TgPeerCache::setStore(TgStore *store)
 {
-    return _globalChats;
+    _store = store;
+}
+
+void TgPeerCache::remember(QHash<qint64, TgObject> &into, QList<qint64> &order,
+                           const TgList &list)
+{
+    for (qint32 i = 0; i < list.size(); ++i) {
+        const TgObject peer = list[i].toMap();
+        const qint64 id = TgClient::getPeerId(peer).toLongLong();
+        if (id == 0) {
+            continue;
+        }
+
+        // userEmpty and chatEmpty carry an id and nothing else, and would
+        // replace a usable record with a stub.
+        if (ID(peer) == TLType::UserEmpty || ID(peer) == TLType::ChatEmpty) {
+            continue;
+        }
+
+        if (!into.contains(id)) {
+            order.append(id);
+        }
+        into.insert(id, peer);
+    }
+
+    // Oldest out first. Anything evicted is still in the store, so a miss
+    // costs a query rather than a blank name.
+    while (order.size() > MaxEntries) {
+        into.remove(order.takeFirst());
+    }
+}
+
+void TgPeerCache::put(const TgList &users, const TgList &chats)
+{
+    remember(_users, _userOrder, users);
+    remember(_chats, _chatOrder, chats);
+}
+
+TgObject TgPeerCache::byId(qint64 peerId)
+{
+    if (peerId == 0) {
+        return TgObject();
+    }
+
+    if (_users.contains(peerId)) {
+        return _users.value(peerId);
+    }
+    if (_chats.contains(peerId)) {
+        return _chats.value(peerId);
+    }
+
+    if (_store == 0 || !_store->isOpen()) {
+        return TgObject();
+    }
+
+    TgObject peer = _store->peer(peerId, TLType::User);
+    if (EMPTY(peer)) {
+        peer = _store->peer(peerId, TLType::Chat);
+    }
+
+    // Kept, so a second reference to the same sender in the same chat does not
+    // go back to disk.
+    if (!EMPTY(peer)) {
+        TgList one;
+        one.append(peer);
+        if (TgClient::isUser(peer)) {
+            remember(_users, _userOrder, one);
+        } else {
+            remember(_chats, _chatOrder, one);
+        }
+    }
+
+    return peer;
+}
+
+void TgPeerCache::clear()
+{
+    _users.clear();
+    _chats.clear();
+    _userOrder.clear();
+    _chatOrder.clear();
+}
+
+TgPeerCache& peerCache()
+{
+    static TgPeerCache cache;
+    return cache;
+}
+
+TgObject resolvePeer(const TgList &users, const TgList &chats, qint64 peerId)
+{
+    if (peerId == 0) {
+        return TgObject();
+    }
+
+    // The lists that came with the response win: they are this moment's truth
+    // about a peer, where the cache may hold a name from an hour ago.
+    for (qint32 i = 0; i < users.size(); ++i) {
+        const TgObject peer = users[i].toMap();
+        if (TgClient::getPeerId(peer).toLongLong() == peerId) {
+            return peer;
+        }
+    }
+    for (qint32 i = 0; i < chats.size(); ++i) {
+        const TgObject peer = chats[i].toMap();
+        if (TgClient::getPeerId(peer).toLongLong() == peerId) {
+            return peer;
+        }
+    }
+
+    return peerCache().byId(peerId);
 }
 
 using namespace TLType;
@@ -268,19 +380,19 @@ void handleMessageAction(TgObject &row, TgObject message, TgObject sender, TgLis
         TgList usersIds = action["users"].toList();
 
         for (qint32 i = 0; i < usersIds.size(); ++i) {
-            for (qint32 j = 0; j < users.size(); ++j) {
-                if (TgClient::getPeerId(users[j].toMap()) == usersIds[i]) {
-                    if (i == 0) {
-                        message += " ";
-                    } else {
-                        message += ", ";
-                    }
-                    message += users[j].toMap()["first_name"].toString()
-                            + " "
-                            + users[j].toMap()["last_name"].toString();
-                    break;
-                }
+            TgObject added = resolvePeer(users, chats, usersIds[i].toLongLong());
+            if (EMPTY(added)) {
+                continue;
             }
+
+            if (i == 0) {
+                message += " ";
+            } else {
+                message += ", ";
+            }
+            message += added["first_name"].toString()
+                    + " "
+                    + added["last_name"].toString();
         }
 
         row["messageText"] = message;
@@ -291,13 +403,11 @@ void handleMessageAction(TgObject &row, TgObject message, TgObject sender, TgLis
         QString message = "removed ";
         TgLong userId = action["user_id"].toLongLong();
 
-        for (qint32 j = 0; j < users.size(); ++j) {
-            if (TgClient::getPeerId(users[j].toMap()) == userId) {
-                message += users[j].toMap()["first_name"].toString()
-                        + " "
-                        + users[j].toMap()["last_name"].toString();
-                break;
-            }
+        TgObject removed = resolvePeer(users, chats, userId);
+        if (!EMPTY(removed)) {
+            message += removed["first_name"].toString()
+                    + " "
+                    + removed["last_name"].toString();
         }
 
         row["messageText"] = message;

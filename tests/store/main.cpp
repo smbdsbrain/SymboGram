@@ -13,6 +13,7 @@
 #include <QSqlQuery>
 #include <QTextStream>
 
+#include "messageutil.h"
 #include "tgstore.h"
 #include "tlcase.h"
 #include "tlschema.h"
@@ -65,7 +66,7 @@ int main(int argc, char *argv[])
     QTextStream out(stdout);
 
     TlReport r;
-    r.planned = 8;
+    r.planned = 12;
 
     // The desktop toolchain ships the driver. Without it there is nothing here
     // to test but the degradation path, and reporting the rest as passing
@@ -255,6 +256,122 @@ int main(int argc, char *argv[])
             r.fail("control/a changed layout discards the cache",
                    "rows from the previous layout were still readable");
         }
+    }
+
+    // --- the peer cache -----------------------------------------------------
+    //
+    // It replaced two process-global lists that were scanned per rendered row,
+    // so the properties that matter are the ones those lists had by accident:
+    // a peer is found by id, the newest copy wins, and nothing that was ever
+    // seen becomes unfindable.
+
+    // 9. Found by id, and a later copy replaces an earlier one.
+    {
+        peerCache().clear();
+        peerCache().setStore(0);
+
+        TgList users;
+        users.append(makeUser(70, "First"));
+        peerCache().put(users, TgList());
+
+        TgList updated;
+        updated.append(makeUser(70, "Second"));
+        peerCache().put(updated, TgList());
+
+        const TgObject got = peerCache().byId(70);
+        if (got["first_name"].toString() == "Second") {
+            r.ok("peercache/newest copy wins");
+        } else {
+            r.fail("peercache/newest copy wins",
+                   QString("got %1").arg(got["first_name"].toString()));
+        }
+    }
+
+    // 10. The list that came with the response beats the cache, because the
+    // cache may be holding a name from an hour ago.
+    {
+        peerCache().clear();
+        peerCache().setStore(0);
+
+        TgList cached;
+        cached.append(makeUser(80, "Stale"));
+        peerCache().put(cached, TgList());
+
+        TgList fresh;
+        fresh.append(makeUser(80, "Fresh"));
+
+        const TgObject got = resolvePeer(fresh, TgList(), 80);
+        if (got["first_name"].toString() == "Fresh") {
+            r.ok("resolvePeer/the response wins over the cache");
+        } else {
+            r.fail("resolvePeer/the response wins over the cache",
+                   QString("got %1").arg(got["first_name"].toString()));
+        }
+    }
+
+    // 11. Falling out of memory is not the same as being forgotten. This is
+    // what makes a bounded cache safe: the store is still behind it.
+    {
+        TgStore store;
+        store.open(path, "test_peercache_store");
+
+        TgList seed;
+        seed.append(makeUser(90, "Evicted"));
+        store.putPeers(seed, TgList());
+        store.flush();
+
+        peerCache().clear();
+        peerCache().setStore(&store);
+        peerCache().put(seed, TgList());
+
+        // Push it out with more entries than the cache will hold.
+        TgList filler;
+        for (qint32 i = 0; i < TgPeerCache::MaxEntries + 10; ++i) {
+            filler.append(makeUser(100000 + i, "filler"));
+        }
+        peerCache().put(filler, TgList());
+
+        const TgObject got = peerCache().byId(90);
+        if (got["first_name"].toString() == "Evicted") {
+            r.ok("peercache/an evicted peer comes back from the store");
+        } else {
+            r.fail("peercache/an evicted peer comes back from the store",
+                   "the peer was lost once evicted");
+        }
+
+        peerCache().setStore(0);
+        peerCache().clear();
+    }
+
+    // 12. Deliberate-failure control.
+    //
+    // An unbounded cache is the defect this replaced, and it is invisible from
+    // the outside: every lookup still works, the phone just runs out of memory
+    // eventually. Asserting the bound is the only way it stays bounded.
+    {
+        peerCache().clear();
+        peerCache().setStore(0);
+
+        TgList many;
+        for (qint32 i = 0; i < TgPeerCache::MaxEntries + 100; ++i) {
+            many.append(makeUser(200000 + i, "m"));
+        }
+        peerCache().put(many, TgList());
+
+        // The oldest must be gone from memory, and with no store behind the
+        // cache there is nowhere else for it to come from.
+        const bool evicted = peerCache().byId(200000).isEmpty();
+        const bool kept = !peerCache().byId(200000 + TgPeerCache::MaxEntries + 99).isEmpty();
+
+        if (evicted && kept) {
+            r.ok("control/the cache stays bounded");
+        } else {
+            r.fail("control/the cache stays bounded",
+                   evicted ? "the newest entry was dropped"
+                           : "the oldest entry was still held");
+        }
+
+        peerCache().clear();
     }
 
     QFile::remove(path);
