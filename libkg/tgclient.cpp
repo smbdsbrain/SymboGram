@@ -67,6 +67,7 @@ TgClient::TgClient(QObject *parent, qint32 dcId, QString sessionName, bool useTe
     , _sessionDirectory()
     , _testDc(useTestDc)
     , _updates(0)
+    , _store()
 {
     _main = dcId == 0;
     clientSessionName = sessionName;
@@ -86,6 +87,13 @@ TgClient::TgClient(QObject *parent, qint32 dcId, QString sessionName, bool useTe
 
     if (_main) {
         _updates = new TgUpdatesManager(this);
+
+        // Beside the session, so SYMBOGRAM_SESSION_DIR relocates it for the
+        // desktop build and the e2e harness without any extra plumbing. A
+        // failure here is expected and survivable: every call on a closed
+        // store is a no-op.
+        _store.open(_cacheDirectory.absoluteFilePath("cache.db"),
+                    "symbogram_" + clientSessionName);
     }
 }
 
@@ -233,6 +241,7 @@ void TgClient::stop()
 {
     kgDebug() << "Stopping client";
 
+    _store.flush();
     _transport->stop();
 }
 
@@ -353,9 +362,55 @@ TgUpdatesManager* TgClient::updates()
     return _updates;
 }
 
+TgStore* TgClient::store()
+{
+    // The children share the main client's cache rather than opening one each:
+    // one account, one set of peers, and SQLite does not want several writers
+    // on one file.
+    if (!isMain()) {
+        TgClient* c = static_cast<TgClient*>(parent());
+        if (c != 0) {
+            return c->store();
+        }
+    }
+
+    return &_store;
+}
+
 void TgClient::dispatchUpdate(TgObject update, TgList users, TgList chats, qint32 date)
 {
+    TgStore *s = store();
+    s->putPeers(users, chats);
+
+    const TgObject message = update["message"].toMap();
+    if (!EMPTY(message)) {
+        TgList one;
+        one.append(message);
+        s->putMessages(TgObject(), one);
+    }
+
     emit gotUpdate(update, 0, users, chats, date, 0, 0);
+}
+
+void TgClient::cacheResponse(const TgObject &response)
+{
+    // Written but never read back yet. Landing the writes on their own means
+    // this commit cannot change what anyone sees -- only what is on disk --
+    // so a fault in the reading is a separate bisect from a fault here.
+    TgStore *s = store();
+    if (!s->isOpen()) {
+        return;
+    }
+
+    s->putPeers(response["users"].toList(), response["chats"].toList());
+    s->putMessages(TgObject(), response["messages"].toList());
+
+    const TgList dialogs = response["dialogs"].toList();
+    if (!dialogs.isEmpty()) {
+        s->putDialogs(dialogs, response["messages"].toList(), 0);
+    }
+
+    s->flush();
 }
 
 void TgClient::dispatchMessageUpdate(TgObject update, TgLongVariant messageId)
@@ -482,8 +537,12 @@ void TgClient::handleObject(QByteArray data, qint64 messageId)
     case TLType::MessagesDialogs:
     case TLType::MessagesDialogsNotModified:
     case TLType::MessagesDialogsSlice:
-        emit messagesDialogsResponse(tlDeserialize<&readTLMessagesDialogs>(data).toMap(), messageId);
+    {
+        TgObject dialogs = tlDeserialize<&readTLMessagesDialogs>(data).toMap();
+        cacheResponse(dialogs);
+        emit messagesDialogsResponse(dialogs, messageId);
         break;
+    }
     case TLType::UploadFile:
     case TLType::UploadFileCdnRedirect:
         handleDownloadingFile(tlDeserialize<&readTLUploadFile>(data).toMap(), messageId);
@@ -546,8 +605,12 @@ void TgClient::handleObject(QByteArray data, qint64 messageId)
     case TLType::MessagesMessages:
     case TLType::MessagesMessagesSlice:
     case TLType::MessagesMessagesNotModified:
-        emit messagesMessagesResponse(tlDeserialize<&readTLMessagesMessages>(data).toMap(), messageId);
+    {
+        TgObject messages = tlDeserialize<&readTLMessagesMessages>(data).toMap();
+        cacheResponse(messages);
+        emit messagesMessagesResponse(messages, messageId);
         break;
+    }
     default:
         kgDebug() << "UNHANDLED object:" << conId;
         emit unknownResponse(conId, data, messageId);

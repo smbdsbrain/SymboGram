@@ -12,6 +12,7 @@ HEADERS += \
     $$PWD/crypto.h \
     $$PWD/tgclient.h \
     $$PWD/tgtransport.h \
+    $$PWD/tgstore.h \
     $$PWD/tgupdates.h \
     $$PWD/tgupdatesstate.h \
     $$PWD/systemname.h \
@@ -25,6 +26,7 @@ SOURCES += \
     $$PWD/crypto.cpp \
     $$PWD/tgclient.cpp \
     $$PWD/tgtransport.cpp \
+    $$PWD/tgstore.cpp \
     $$PWD/tgupdates.cpp \
     $$PWD/tgupdatesstate.cpp \
     $$PWD/systemname.cpp \

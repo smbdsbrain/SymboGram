@@ -5,6 +5,7 @@
 #include "tgtransport.h"
 #include <QFile>
 #include "crypto.h"
+#include "tgstore.h"
 #include "tgupdatesstate.h"
 #include <QList>
 #include <QDir>
@@ -59,6 +60,10 @@ private:
     // Only the main client runs one: the per-data-centre children
     // exist to move file parts and are never sent updates.
     TgUpdatesManager *_updates;
+    // Shared by the whole client tree: the per-data-centre children move
+    // file parts for the same account and have nothing of their own to
+    // cache. Only the main client opens it.
+    TgStore _store;
 
 public:
     explicit TgClient(QObject *parent = 0, qint32 dcId = 0, QString sessionName = "",
@@ -165,6 +170,8 @@ public slots:
     void dispatchChannelReset(TgLongVariant channelId);
 
     TgUpdatesManager* updates();
+    TgStore* store();
+    void cacheResponse(const TgObject &response);
 
     static void registerQML();
 
