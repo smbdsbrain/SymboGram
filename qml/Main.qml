@@ -228,6 +228,18 @@ Item {
 //        }
     }
 
+    // The transport backs off after a failed connect, so without this it would
+    // wait out a delay chosen while the phone had no signal. PlatformUtils is
+    // where bearer state is known; the transport only knows its socket failed.
+    Connections {
+        target: platformUtils
+        onNetworkOnline: {
+            if (telegramClient.hasSession()) {
+                telegramClient.retryNow();
+            }
+        }
+    }
+
     AvatarDownloader {
         id: globalAvatarDownloader
         client: telegramClient

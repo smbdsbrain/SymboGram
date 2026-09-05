@@ -88,11 +88,6 @@ static void installDevLog()
 #include <QtDeclarative>
 #endif
 
-#if QT_VERSION >= 0x040702
-#include <QNetworkConfigurationManager>
-#include <QNetworkSession>
-#endif
-
 int main(int argc, char *argv[])
 {
     //TODO OpenGL acceleration
@@ -188,7 +183,8 @@ int main(int argc, char *argv[])
     viewer.setOrientation(QmlApplicationViewer::ScreenOrientationAuto);
     viewer.rootContext()->setContextProperty("symbogramVersion", QApplication::applicationVersion());
     viewer.rootContext()->setContextProperty("symbogramPlatform", systemName());
-    viewer.rootContext()->setContextProperty("platformUtils", new PlatformUtils(&viewer));
+    PlatformUtils *platformUtils = new PlatformUtils(&viewer);
+    viewer.rootContext()->setContextProperty("platformUtils", platformUtils);
     viewer.rootContext()->setContextProperty("kgScaling", QFontMetrics(app.font()).height() / 14.0f);
     viewer.setMainQmlFile(QLatin1String("qrc:///qml/Main.qml"));
 #if QT_VERSION >= 0x050000
@@ -198,15 +194,10 @@ int main(int argc, char *argv[])
 #endif
     viewer.showExpanded();
 
-#if QT_VERSION >= 0x040702
-    QNetworkConfigurationManager manager;
-    if (manager.capabilities() & QNetworkConfigurationManager::NetworkSessionRequired) {
-        //TODO save network selection
-        QNetworkConfiguration config = manager.defaultConfiguration();
-        QNetworkSession* networkSession = new QNetworkSession(config);
-        networkSession->open(); //TODO reset network selection
-    }
-#endif
+    // Owned by PlatformUtils, which outlives this scope: the session has to
+    // stay open for the life of the process, and something has to still be
+    // holding it to notice when the bearer comes back.
+    platformUtils->openNetworkSession();
 
     return app.exec();
 }

@@ -19,6 +19,14 @@
 #include "QPiglerAPI.h"
 #endif
 
+// QNetworkSession arrived in 4.7.2. Bearer management is platform integration,
+// which is what this class is for, and keeping it here means libkg needs no
+// opinion about how a phone gets online.
+#if QT_VERSION >= 0x040702
+#include <QNetworkConfigurationManager>
+#include <QNetworkSession>
+#endif
+
 class PlatformUtils : public QObject
 {
     Q_OBJECT
@@ -33,13 +41,30 @@ private:
     QPiglerAPI pigler;
     qint32 piglerId;
 #endif
+#if QT_VERSION >= 0x040702
+    QNetworkConfigurationManager *networkManager;
+    QNetworkSession *networkSession;
+#endif
 
 public:
     explicit PlatformUtils(QObject *parent = 0);
 
 signals:
+    // The device has a usable bearer again. Nothing in the transport can
+    // observe this, so it waits out a backoff chosen while there was no
+    // network; this lets the UI cut that short.
+    void networkOnline();
+
 
 public slots:
+    // Opens a network session when the platform requires one, restoring the
+    // configuration chosen last time. Called once at startup.
+    void openNetworkSession();
+
+#if QT_VERSION >= 0x040702
+    void networkOnlineStateChanged(bool online);
+#endif
+
     void showAndRaise();
     void quit();
 

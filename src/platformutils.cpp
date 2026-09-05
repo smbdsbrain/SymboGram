@@ -21,6 +21,7 @@
 #endif
 
 #include <crypto.h>
+#include <QSettings>
 
 PlatformUtils::PlatformUtils(QObject *parent)
     : QObject(parent)
@@ -33,6 +34,10 @@ PlatformUtils::PlatformUtils(QObject *parent)
 #ifdef SYMBIAN3_READY
     , pigler()
     , piglerId(-1)
+#endif
+#if QT_VERSION >= 0x040702
+    , networkManager(0)
+    , networkSession(0)
 #endif
 {
     if (window) {
@@ -295,3 +300,69 @@ void openUrl(QUrl url)
     QDesktopServices::openUrl(url);
 #endif
 }
+
+void PlatformUtils::openNetworkSession()
+{
+#if QT_VERSION >= 0x040702
+    if (networkSession) {
+        return;
+    }
+
+    networkManager = new QNetworkConfigurationManager(this);
+
+    // Watched whether or not a session is required. Even where the platform
+    // opens bearers on demand, this is the only notice the process gets that
+    // the network came back, and the transport is otherwise sitting out a
+    // backoff chosen while it was down.
+    connect(networkManager, SIGNAL(onlineStateChanged(bool)),
+            this, SLOT(networkOnlineStateChanged(bool)));
+
+    if (!(networkManager->capabilities() & QNetworkConfigurationManager::NetworkSessionRequired)) {
+        return;
+    }
+
+    // Symbian asks the user to pick an access point when a session is opened
+    // without one. Remembering the choice is the difference between being
+    // asked once and being asked at every launch.
+    QSettings settings(QSettings::IniFormat, QSettings::UserScope,
+                       QCoreApplication::organizationName(),
+                       QCoreApplication::applicationName() + "_cache");
+
+    const QString savedId = settings.value("NetworkConfiguration").toString();
+
+    QNetworkConfiguration config;
+    if (!savedId.isEmpty()) {
+        config = networkManager->configurationFromIdentifier(savedId);
+    }
+
+    // A remembered access point that is no longer present -- a Wi-Fi network
+    // left behind, a removed SIM -- must not stop the app from getting online.
+    if (!config.isValid() || (config.state() & QNetworkConfiguration::Discovered) == 0) {
+        config = networkManager->defaultConfiguration();
+    }
+
+    if (!config.isValid()) {
+        kgWarning() << "No usable network configuration";
+        return;
+    }
+
+    networkSession = new QNetworkSession(config, this);
+    networkSession->open();
+
+    settings.setValue("NetworkConfiguration", config.identifier());
+    //TODO: let the user clear the remembered access point from the drawer
+#endif
+}
+
+#if QT_VERSION >= 0x040702
+void PlatformUtils::networkOnlineStateChanged(bool online)
+{
+    // Only the transition to online is acted on. A bearer flap the TCP
+    // connection survives is not a reason to tear it down, and if it did not
+    // survive, the socket reports that itself.
+    if (online) {
+        kgInfo() << "Network is online again";
+        emit networkOnline();
+    }
+}
+#endif
