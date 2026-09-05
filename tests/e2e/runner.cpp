@@ -38,6 +38,8 @@ const char* tgEventName(TgEvent::Kind k)
     case TgEvent::Unknown:        return "unknownResponse";
     case TgEvent::Update:         return "update";
     case TgEvent::MessageUpdate:  return "messageUpdate";
+    case TgEvent::UpdatesState:   return "updatesStateChanged";
+    case TgEvent::UpdatesReset:   return "updatesReset";
     case TgEvent::FileUploaded:   return "fileUploaded";
     case TgEvent::FileDownloaded: return "fileDownloaded";
     case TgEvent::Timeout:        return "timeout";
@@ -91,6 +93,10 @@ ScenarioRunner::ScenarioRunner(TgClient *client, Scenario *scenario, QObject *pa
             this, SLOT(onUpdate(TgObject,TgLongVariant,TgList,TgList,qint32,qint32,qint32)));
     connect(_client, SIGNAL(gotMessageUpdate(TgObject,TgLongVariant)),
             this, SLOT(onMessageUpdate(TgObject,TgLongVariant)));
+    connect(_client, SIGNAL(updatesStateChanged(qint32,qint32,qint32,qint32)),
+            this, SLOT(onUpdatesState(qint32,qint32,qint32,qint32)));
+    connect(_client, SIGNAL(updatesReset()),
+            this, SLOT(onUpdatesReset()));
     connect(_client, SIGNAL(fileUploaded(TgLongVariant,TgObject)),
             this, SLOT(onFileUploaded(TgLongVariant,TgObject)));
     connect(_client, SIGNAL(fileDownloaded(TgLongVariant,QString)),
@@ -301,6 +307,25 @@ void ScenarioRunner::onUpdate(TgObject update, TgLongVariant messageId, TgList u
 void ScenarioRunner::onMessageUpdate(TgObject update, TgLongVariant messageId)
 {
     TgEvent e; e.kind = TgEvent::MessageUpdate; e.obj = update; e.msgId = messageId.toLongLong(); deliver(e);
+}
+
+void ScenarioRunner::onUpdatesState(qint32 pts, qint32 qts, qint32 date, qint32 seq)
+{
+    // Carried in obj rather than in the scalar fields: a verify reads it the
+    // same way it reads any other decoded object, and the four values stay
+    // together.
+    TgEvent e;
+    e.kind = TgEvent::UpdatesState;
+    e.obj["pts"] = pts;
+    e.obj["qts"] = qts;
+    e.obj["date"] = date;
+    e.obj["seq"] = seq;
+    deliver(e);
+}
+
+void ScenarioRunner::onUpdatesReset()
+{
+    TgEvent e; e.kind = TgEvent::UpdatesReset; deliver(e);
 }
 
 void ScenarioRunner::onFileUploaded(TgLongVariant fileId, TgObject inputFile)

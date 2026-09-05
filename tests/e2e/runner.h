@@ -56,6 +56,8 @@ private slots:
     void onUpdate(TgObject update, TgLongVariant messageId, TgList users,
                   TgList chats, qint32 date, qint32 seq, qint32 seqStart);
     void onMessageUpdate(TgObject update, TgLongVariant messageId);
+    void onUpdatesState(qint32 pts, qint32 qts, qint32 date, qint32 seq);
+    void onUpdatesReset();
     void onFileUploaded(TgLongVariant fileId, TgObject inputFile);
     void onFileDownloaded(TgLongVariant fileId, QString filePath);
 

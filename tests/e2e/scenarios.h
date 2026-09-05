@@ -33,5 +33,6 @@ Scenario* makeSendScenario();
 // auth.sendCode with a malformed number. Asserts the client surfaces
 // PHONE_NUMBER_INVALID rather than hanging -- the failure mode that matters.
 Scenario* makeNegativeScenario();
+Scenario* makeUpdatesScenario();
 
 #endif // E2E_SCENARIOS_H

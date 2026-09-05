@@ -12,6 +12,8 @@ HEADERS += \
     $$PWD/crypto.h \
     $$PWD/tgclient.h \
     $$PWD/tgtransport.h \
+    $$PWD/tgupdates.h \
+    $$PWD/tgupdatesstate.h \
     $$PWD/systemname.h \
     $$PWD/qcompressor.h \
     $$PWD/debug.h
@@ -23,11 +25,14 @@ SOURCES += \
     $$PWD/crypto.cpp \
     $$PWD/tgclient.cpp \
     $$PWD/tgtransport.cpp \
+    $$PWD/tgupdates.cpp \
+    $$PWD/tgupdatesstate.cpp \
     $$PWD/systemname.cpp \
     $$PWD/qcompressor.cpp \
     $$PWD/tgc_auth.cpp \
     $$PWD/tgc_help.cpp \
     $$PWD/tgc_messages.cpp \
+    $$PWD/tgc_updates.cpp \
     $$PWD/tgc_utils.cpp \
     $$PWD/tgc_files.cpp \
     $$PWD/tgc_users.cpp

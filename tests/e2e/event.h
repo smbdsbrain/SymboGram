@@ -35,6 +35,8 @@ struct TgEvent {
         Unknown,
         Update,
         MessageUpdate,
+        UpdatesState,
+        UpdatesReset,
         FileUploaded,
         FileDownloaded,
         Timeout

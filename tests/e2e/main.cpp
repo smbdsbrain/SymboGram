@@ -155,6 +155,7 @@ int main(int argc, char *argv[])
     else if (which == "read")     scenario = makeReadScenario();
     else if (which == "send")     scenario = makeSendScenario();
     else if (which == "negative") scenario = makeNegativeScenario();
+    else if (which == "updates")  scenario = makeUpdatesScenario();
     else {
         out << "1..0 # SKIP unknown scenario '" << which << "'\n";
         return 77;

@@ -39,7 +39,7 @@
 param(
     [ValidateSet('test', 'prod')]
     [string] $Tier = 'test',
-    [ValidateSet('connect', 'login', 'read', 'send', 'negative', 'all')]
+    [ValidateSet('connect', 'login', 'read', 'send', 'negative', 'updates', 'all')]
     [string] $Scenario = 'all',
     [string] $Phone,
     [string] $Code,
@@ -105,7 +105,7 @@ if ($Tier -eq 'prod') {
 }
 
 $scenarios = if ($Scenario -eq 'all') {
-    if ($Tier -eq 'test') { @('connect', 'negative', 'login') } else { @('connect', 'read') }
+    if ($Tier -eq 'test') { @('connect', 'negative', 'login') } else { @('connect', 'read', 'updates') }
 } else { @($Scenario) }
 
 if (-not $Phone) {

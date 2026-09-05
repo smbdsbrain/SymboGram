@@ -5,6 +5,7 @@
 #include "tgtransport.h"
 #include <QFile>
 #include "crypto.h"
+#include "tgupdatesstate.h"
 #include <QList>
 #include <QDir>
 
@@ -28,6 +29,8 @@ public:
 //TODO: research behavior of upload / download with disconnecting and session change
 //TODO: record PCM and convert to ogg vorbis
 //TODO: mutexes for migrations / file operations
+
+class TgUpdatesManager;
 
 class TgClient : public QObject
 {
@@ -53,6 +56,9 @@ private:
     TgObject importMethod;
     QDir _cacheDirectory;
     QDir _sessionDirectory;
+    // Only the main client runs one: the per-data-centre children
+    // exist to move file parts and are never sent updates.
+    TgUpdatesManager *_updates;
 
 public:
     explicit TgClient(QObject *parent = 0, qint32 dcId = 0, QString sessionName = "",
@@ -143,6 +149,23 @@ public slots:
     TgLongVariant messagesGetDialogFilters();
     TgLongVariant usersGetUsers(TgVector users = TgList());
 
+    TgLongVariant updatesGetState();
+    TgLongVariant updatesGetDifference(qint32 pts, qint32 date, qint32 qts);
+    TgLongVariant updatesGetChannelDifference(TgObject inputChannel, qint32 pts,
+                                              qint32 limit, bool force = false);
+
+    // Where the update pipeline emits from. It cannot emit another object's
+    // signals, and routing through here keeps every update the models see
+    // arriving on the signal they already listen to -- whether it was pushed
+    // or recovered from a difference.
+    void dispatchUpdate(TgObject update, TgList users, TgList chats, qint32 date);
+    void dispatchMessageUpdate(TgObject update, TgLongVariant messageId);
+    void dispatchUpdatesReset();
+    void dispatchUpdatesState(qint32 pts, qint32 qts, qint32 date, qint32 seq);
+    void dispatchChannelReset(TgLongVariant channelId);
+
+    TgUpdatesManager* updates();
+
     static void registerQML();
 
 signals:
@@ -182,6 +205,17 @@ signals:
 
     void gotUpdate(TgObject update, TgLongVariant messageId, TgList users, TgList chats, qint32 date, qint32 seq, qint32 seqStart);
     void gotMessageUpdate(TgObject messageUpdate, TgLongVariant messageId);
+
+    // The common update sequence moved. Emitted when it is seeded, when a
+    // difference resets it, and when an applied update advances it -- so a
+    // reader can tell "caught up to here" without reaching into the pipeline.
+    void updatesStateChanged(qint32 pts, qint32 qts, qint32 date, qint32 seq);
+
+    // updates.differenceTooLong: the common sequence was reset and whatever a
+    // model currently holds is no longer known to be current.
+    void updatesReset();
+    // The same for one channel, after updates.channelDifferenceTooLong.
+    void channelReset(TgLongVariant channelId);
 };
 
 template <WRITE_METHOD W> TgLong TgClient::sendObject(TgObject i)

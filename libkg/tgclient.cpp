@@ -5,6 +5,7 @@
 #include "debug.h"
 #include "tgtransport.h"
 #include "tlschema.h"
+#include "tgupdates.h"
 #include <QDir>
 #include <QSettings>
 #include <QCoreApplication>
@@ -65,6 +66,7 @@ TgClient::TgClient(QObject *parent, qint32 dcId, QString sessionName, bool useTe
     , _cacheDirectory()
     , _sessionDirectory()
     , _testDc(useTestDc)
+    , _updates(0)
 {
     _main = dcId == 0;
     clientSessionName = sessionName;
@@ -81,6 +83,10 @@ TgClient::TgClient(QObject *parent, qint32 dcId, QString sessionName, bool useTe
     _cacheDirectory.mkpath(".");
 
     _transport = new TgTransport(this, clientSessionName, dcId, _testDc);
+
+    if (_main) {
+        _updates = new TgUpdatesManager(this);
+    }
 }
 
 QString TgClient::sessionName()
@@ -271,6 +277,10 @@ void TgClient::handleDisconnected()
 
     _connected = _initialized = _authorized = false;
 
+    if (_updates != 0) {
+        _updates->disconnected();
+    }
+
     emit disconnected(hasUserId());
 }
 
@@ -310,6 +320,12 @@ void TgClient::handleInitialized()
         }
     }
 
+    // A reconnect is a hole of unknown size: nothing was delivered while the
+    // socket was down and the server does not replay it.
+    if (_updates != 0) {
+        _updates->initialized();
+    }
+
     emit initialized(hasUserId());
 }
 
@@ -323,12 +339,52 @@ void TgClient::handleAuthorized(qint64 userId)
         downloadNextFilePart();
     }
 
+    // Before the signal, so anything a model does in response to being
+    // authorized already has a sequence to be checked against.
+    if (_updates != 0 && userId != 0) {
+        _updates->authorized();
+    }
+
     emit authorized(userId);
+}
+
+TgUpdatesManager* TgClient::updates()
+{
+    return _updates;
+}
+
+void TgClient::dispatchUpdate(TgObject update, TgList users, TgList chats, qint32 date)
+{
+    emit gotUpdate(update, 0, users, chats, date, 0, 0);
+}
+
+void TgClient::dispatchMessageUpdate(TgObject update, TgLongVariant messageId)
+{
+    emit gotMessageUpdate(update, messageId);
+}
+
+void TgClient::dispatchUpdatesReset()
+{
+    emit updatesReset();
+}
+
+void TgClient::dispatchUpdatesState(qint32 pts, qint32 qts, qint32 date, qint32 seq)
+{
+    emit updatesStateChanged(pts, qts, date, seq);
+}
+
+void TgClient::dispatchChannelReset(TgLongVariant channelId)
+{
+    emit channelReset(channelId);
 }
 
 void TgClient::handleMessageChanged(qint64 oldMsg, qint64 newMsg)
 {
     kgDebug() << "Message changed" << oldMsg << "->" << newMsg;
+
+    if (_updates != 0) {
+        _updates->messageChanged(oldMsg, newMsg);
+    }
 
     migrationForDc.insert(newMsg, migrationForDc.take(oldMsg));
 
@@ -352,6 +408,10 @@ void TgClient::handleMessageChanged(qint64 oldMsg, qint64 newMsg)
 
 void TgClient::handleRpcError(qint32 errorCode, QString errorMessage, qint64 messageId)
 {
+    if (_updates != 0 && _updates->handleRpcError(errorCode, errorMessage, messageId)) {
+        return;
+    }
+
     if (errorMessage == "OFFSET_INVALID") {
         fileProbablyDownloaded(messageId);
         return;
@@ -428,39 +488,49 @@ void TgClient::handleObject(QByteArray data, qint64 messageId)
     case TLType::UploadFileCdnRedirect:
         handleDownloadingFile(tlDeserialize<&readTLUploadFile>(data).toMap(), messageId);
         break;
+    //Every Updates constructor goes through the pipeline rather than straight
+    //out to the models. What it adds is ordering: an update is applied only
+    //when the sequence in front of it has been, and a hole triggers a
+    //difference instead of being passed on as if nothing were missing.
+    //
+    //updatesTooLong is included, and is not an unknown response: it is the
+    //server saying the backlog is too large to push.
     case TLType::UpdateShort:
-    {
-        TgObject update = tlDeserialize<&readTLUpdates>(data).toMap();
-        emit gotUpdate(update["update"].toMap(), messageId, TgList(), TgList(), update["date"].toInt(), 0, 0);
-        break;
-    }
     case TLType::Updates:
     case TLType::UpdatesCombined:
-    {
-        TgObject update = tlDeserialize<&readTLUpdates>(data).toMap();
-
-        TgList users    = update["users"].toList();
-        TgList chats    = update["chats"].toList();
-        qint32 date     = update["date"].toInt();
-        qint32 seq      = update["seq"].toInt();
-        qint32 seqStart = update["seq_start"].toInt();
-
-        TgList updates = update["updates"].toList();
-        foreach (TgVariant u, updates) {
-            emit gotUpdate(u.toMap(),
-                           messageId,
-                           users,
-                           chats,
-                           date,
-                           seq,
-                           seqStart);
-        }
-        break;
-    }
+    case TLType::UpdatesTooLong:
     case TLType::UpdateShortMessage:
     case TLType::UpdateShortChatMessage:
     case TLType::UpdateShortSentMessage:
-        emit gotMessageUpdate(tlDeserialize<&readTLUpdates>(data).toMap(), messageId);
+    {
+        TgObject update = tlDeserialize<&readTLUpdates>(data).toMap();
+        if (_updates != 0) {
+            _updates->processUpdates(update, messageId);
+        }
+        break;
+    }
+    case TLType::UpdatesState:
+        if (_updates == 0 || !_updates->handleState(
+                    tlDeserialize<&readTLUpdatesState>(data).toMap(), messageId)) {
+            emit unknownResponse(conId, data, messageId);
+        }
+        break;
+    case TLType::UpdatesDifference:
+    case TLType::UpdatesDifferenceEmpty:
+    case TLType::UpdatesDifferenceSlice:
+    case TLType::UpdatesDifferenceTooLong:
+        if (_updates == 0 || !_updates->handleDifference(
+                    tlDeserialize<&readTLUpdatesDifference>(data).toMap(), messageId)) {
+            emit unknownResponse(conId, data, messageId);
+        }
+        break;
+    case TLType::UpdatesChannelDifference:
+    case TLType::UpdatesChannelDifferenceEmpty:
+    case TLType::UpdatesChannelDifferenceTooLong:
+        if (_updates == 0 || !_updates->handleChannelDifference(
+                    tlDeserialize<&readTLUpdatesChannelDifference>(data).toMap(), messageId)) {
+            emit unknownResponse(conId, data, messageId);
+        }
         break;
     case TLType::AuthExportedAuthorization:
     {

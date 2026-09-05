@@ -218,6 +218,40 @@ static QString vSent(const TgEvent &e, ScenarioCtx &ctx)
     return QString();
 }
 
+// --- the update pipeline ----------------------------------------------------
+
+// The pipeline has a position in the sequence. Reached two ways and both are a
+// pass: updates.getState on a session that has none stored, or a difference
+// resetting it on one that resumed. Until it happens there is nothing for an
+// update to be ordered against, so it gates the step below.
+static QString vStateSeeded(const TgEvent &e, ScenarioCtx &ctx)
+{
+    const qint32 pts = e.obj["pts"].toInt();
+    if (pts <= 0)
+        return QString("update state seeded with pts %1").arg(pts);
+
+    ctx["pts0"] = pts;
+    qDebug("# sequence seeded at pts=%d date=%d seq=%d",
+           pts, e.obj["date"].toInt(), e.obj["seq"].toInt());
+    return QString();
+}
+
+// The message just sent came back as an update, was found to be in sequence,
+// and moved the counter. That is the whole pipeline in one assertion: a client
+// that emitted updates without ordering them would pass every other step here
+// and fail this one, because nothing would have advanced.
+static QString vPtsAdvanced(const TgEvent &e, ScenarioCtx &ctx)
+{
+    const qint32 pts0 = ctx["pts0"].toInt();
+    const qint32 pts = e.obj["pts"].toInt();
+
+    if (pts <= pts0)
+        return QString("pts did not advance past %1 (still %2)").arg(pts0).arg(pts);
+
+    qDebug("# sequence advanced %d -> %d", pts0, pts);
+    return QString();
+}
+
 // --- scenarios --------------------------------------------------------------
 
 Scenario* makeConnectScenario()
@@ -260,6 +294,22 @@ Scenario* makeSendScenario()
     // Saved Messages only. A test must never write into another person's chat.
     s->add(new CallStep("messages.sendMessage to Saved Messages", &iSendMessage, TgEvent::Update, &vSent, 45000));
     s->add(new CallStep("messages.getHistory sees it", &iHistorySelf, TgEvent::Messages, &vMessagesDecoded));
+    return s;
+}
+
+Scenario* makeUpdatesScenario()
+{
+    Scenario *s = new Scenario("updates");
+    s->add(new CallStep("transport connects", &iStart, TgEvent::Connected, &vConnected, 45000));
+    s->add(new WaitStep("initConnection accepted at this layer", TgEvent::Initialized, &vInitialized, 45000));
+    // The scenario does not issue updates.getState itself: the reply would not
+    // match the id the manager is waiting for, and would be discarded as a
+    // request from somewhere else.
+    s->add(new WaitStep("the pipeline reports a sequence position",
+                        TgEvent::UpdatesState, &vStateSeeded, 60000));
+    // Saved Messages only. A test must never write into another person's chat.
+    s->add(new CallStep("a sent message advances the sequence",
+                        &iSendMessage, TgEvent::UpdatesState, &vPtsAdvanced, 60000));
     return s;
 }
 
