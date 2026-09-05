@@ -181,6 +181,16 @@ TgObject FoldersModel::createRow(TgObject filter)
         return filter;
     }
 
+    // Layer 229 changed dialogFilter.title and dialogFilterChatlist.title from
+    // `string` to `TextWithEntities`, so what used to be a QString is now a
+    // TgObject. data() hands roleNames()[role] straight to QML, and QML renders
+    // a QVariantMap as an empty string -- every folder tab would silently lose
+    // its name. Flatten to the plain text here; entity styling in a folder tab
+    // is not something this UI does anything with.
+    if (filter["title"].type() == QVariant::Map) {
+        filter["title"] = filter["title"].toMap()["text"];
+    }
+
     static QHash<QString, QString> iconsMap = getIconsMap();
     QString icon = iconsMap[filter["emoticon"].toString()];
     if (!icon.isEmpty()) {

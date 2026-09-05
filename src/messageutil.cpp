@@ -523,10 +523,14 @@ void handleMessageAction(TgObject &row, TgObject message, TgObject sender, TgLis
         row["messageText"] = QString("shared a peer to the bot");
         break;
     case MessageActionSetChatWallPaper:
-        row["messageText"] = QString("changed the chat wallpaper");
-        break;
-    case MessageActionSetSameChatWallPaper:
-        row["messageText"] = QString("changed the same chat wallpaper");
+        // Layer 229 deleted messageActionSetSameChatWallPaper and folded it
+        // into this constructor as `same:flags.0?true`. It is the one
+        // constructor the app referenced that 229 removes outright, so the
+        // compiler catches it -- but only because the name was in scope; a
+        // removed constructor that nothing references disappears silently.
+        row["messageText"] = action["same"].toBool()
+                ? QString("changed the same chat wallpaper")
+                : QString("changed the chat wallpaper");
         break;
     case MessageActionGiftCode:
         row["messageText"] = QString("sent you a gift code");

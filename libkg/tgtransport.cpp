@@ -16,13 +16,19 @@
 #include <qcompressor.h>
 #include <QSettings>
 
-TgTransport::TgTransport(TgClient *parent, QString sessionName, qint32 dcId)
+TgTransport::TgTransport(TgClient *parent, QString sessionName, qint32 dcId,
+                         bool useTestDc)
     : QObject(parent)
     , _client(parent)
     , _socket(0)
     , _timer()
 
-    , testMode(false) //Change it for debugging or whatever
+    //Was a hardcoded false with "change it for debugging or whatever". It is a
+    //constructor argument now because the headless e2e harness needs both
+    //environments in one binary: recompiling to switch data centres meant the
+    //test path and the shipping path drifted apart without anyone noticing.
+    //Defaults to false, so src/main.cpp and QML are unaffected.
+    , testMode(useTestDc)
     , mediaOnly(false) //Change it for debugging or whatever
 
     , currentDc(dcId)

@@ -96,6 +96,29 @@ symbian {
         DEFINES += SYMBOGRAM_HAVE_SWEVENT=1
     }
 
+    # Optimise for size, not speed, and drop the asynchronous unwind tables.
+    #
+    # Not a preference -- at API layer 229 the build does not link without it.
+    # tlschema.cpp is generated code: ~2470 constructors as thousand-case
+    # switches, 1.9 MB of source producing a 5.8 MB object (it was 3.8 MB at
+    # layer 166). GCCE emits .ARM.extab/.ARM.exidx unwind tables for every one
+    # of those functions, and at 229 .ARM.extab grew until it ran past the
+    # 0x400000 boundary where .data is loaded:
+    #
+    #   arm-none-symbianelf-ld: section .data loaded at [00400000,00400003]
+    #   overlaps section .ARM.extab loaded at [0035be3c,004187a3]
+    #
+    # roughly 100 KB over a 4 MB code region. -Os shrinks the code and
+    # -fno-asynchronous-unwind-tables stops emitting unwind data for functions
+    # that cannot throw, which is nearly all of the generated schema.
+    #
+    # Worth knowing when this bites again: the schema only grows. If a future
+    # layer overflows even with these, the next lever is teaching the generator
+    # to split its output across translation units -- which does NOT help by
+    # itself (the total is what overlaps) but does make it possible to compile
+    # only the schema with stricter flags than the rest of the app.
+    MMP_RULES += "OPTION GCCE -Os -fno-asynchronous-unwind-tables"
+
     # Upstream leaves these commented, inheriting qmlapplicationviewer's
     # 128 KB/32 MB default. The E6 has 256 MB; a 32 MB ceiling will not survive
     # long chats once history and image caches are live.

@@ -53,7 +53,8 @@ private:
     bool initialized;
 
 public:
-    explicit TgTransport(TgClient *parent = 0, QString sessionName = "", qint32 dcId = 0);
+    explicit TgTransport(TgClient *parent = 0, QString sessionName = "", qint32 dcId = 0,
+                         bool useTestDc = false);
     ~TgTransport();
 
     template <WRITE_METHOD W> qint64 sendPlainObject(QVariant i);

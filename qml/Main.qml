@@ -98,6 +98,19 @@ Item {
         onAuthSentCodeResponse: {
             setAuthProgress(false);
 
+            //auth.sentCodePaymentRequired, new at layer 229. Telegram wants a
+            //paid product bought before it will send a code, and this
+            //constructor carries no "type" at all -- so the switch below reads
+            //undefined and we would advance to a code page for a code that is
+            //never coming. There is no in-app purchase here and there will not
+            //be one, so say so and stay put.
+            //Signed decimal, not 0xf8827ebf: the id is negative as an int32 and
+            //the hex literal would compare as a large positive in QML.
+            if (data["_"] == -125665601) {
+                snackBar.text = "Telegram is asking for a paid product before it will send a login code. Please use the official app.";
+                return;
+            }
+
             authScreen.phonePage.phoneCodeHash = data["phone_code_hash"];
             switch (data["type"]["_"]) {
                 //TODO messages

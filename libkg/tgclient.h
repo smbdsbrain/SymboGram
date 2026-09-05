@@ -40,6 +40,11 @@ private:
     TgLong currentDownloading;
     QHash<TgLong, TgLong> filePackets;
     QHash<qint32, TgClient*> clientForDc;
+    //Which Telegram environment this client and every child it spawns talk to.
+    //Stored because getClientForDc() creates children: a child built without it
+    //would reach a PRODUCTION data centre holding a TEST auth key, and the
+    //resulting failure looks like a codec bug rather than a wiring one.
+    bool _testDc;
     QHash<TgLong, TgInt> migrationForDc;
     bool _main;
     bool _connected;
@@ -50,7 +55,8 @@ private:
     QDir _sessionDirectory;
 
 public:
-    explicit TgClient(QObject *parent = 0, qint32 dcId = 0, QString sessionName = "");
+    explicit TgClient(QObject *parent = 0, qint32 dcId = 0, QString sessionName = "",
+                      bool useTestDc = false);
     
     template <WRITE_METHOD W> TgLong sendObject(TgObject i);
     

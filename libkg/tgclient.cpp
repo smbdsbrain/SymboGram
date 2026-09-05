@@ -47,7 +47,7 @@ void TgClient::registerQML()
 }
 #endif
 
-TgClient::TgClient(QObject *parent, qint32 dcId, QString sessionName)
+TgClient::TgClient(QObject *parent, qint32 dcId, QString sessionName, bool useTestDc)
     : QObject(parent)
     , clientSessionName()
     , _transport(0)
@@ -64,6 +64,7 @@ TgClient::TgClient(QObject *parent, qint32 dcId, QString sessionName)
     , importMethod()
     , _cacheDirectory()
     , _sessionDirectory()
+    , _testDc(useTestDc)
 {
     _main = dcId == 0;
     clientSessionName = sessionName;
@@ -79,7 +80,7 @@ TgClient::TgClient(QObject *parent, qint32 dcId, QString sessionName)
     _cacheDirectory = QDir(_sessionDirectory.absoluteFilePath(QCoreApplication::applicationName() + "_" + clientSessionName));
     _cacheDirectory.mkpath(".");
 
-    _transport = new TgTransport(this, clientSessionName, dcId);
+    _transport = new TgTransport(this, clientSessionName, dcId, _testDc);
 }
 
 QString TgClient::sessionName()
@@ -177,7 +178,9 @@ TgClient* TgClient::getClientForDc(int dcId)
         return client;
     }
 
-    client = new TgClient(this, dcId, clientSessionName);
+    //_testDc must ride along. Without it a file download that migrates to
+    //DC 4 opens a production connection with a test-environment auth key.
+    client = new TgClient(this, dcId, clientSessionName, _testDc);
     clientForDc.insert(dcId, client);
     client->migrateTo(_transport->config(), dcId);
 
@@ -377,12 +380,36 @@ void TgClient::handleObject(QByteArray data, qint64 messageId)
         break;
     case TLType::AuthSentCode:
     case TLType::AuthSentCodeSuccess:
+    //New at layer 229: Telegram can demand a paid product before it will send a
+    //login code at all. Without this case it falls through to unknownResponse
+    //and the phone page just sits there forever with no error, which reads as a
+    //client bug rather than as the server saying no. We cannot satisfy the
+    //demand -- there is no in-app purchase here -- so the point is only that it
+    //fails legibly. readTLAuthSentCode handles all three constructors.
+    case TLType::AuthSentCodePaymentRequired:
         emit authSentCodeResponse(tlDeserialize<&readTLAuthSentCode>(data).toMap(), messageId);
         break;
     case TLType::AuthAuthorization:
     case TLType::AuthAuthorizationSignUpRequired:
         emit authAuthorizationResponse(tlDeserialize<&readTLAuthAuthorization>(data).toMap(), messageId);
         break;
+    //Layer 229 changed what messages.getDialogFilters RETURNS. At 166 it was a
+    //bare Vector<DialogFilter>, which handleVector() below routes by looking at
+    //the first element. At 229 it is a boxed messages.DialogFilters carrying
+    //the vector in a `filters` field plus a tags_enabled flag -- so the reply
+    //no longer starts with the vector constructor, falls through to
+    //unknownResponse, and the folder list silently never arrives.
+    //
+    //Worth noting how this was found: a method's return type is not part of any
+    //constructor definition, so diffing constructors between layers does not
+    //show it. Only running against a real server did. Unbox here and emit the
+    //same signal, so FoldersModel needs no change.
+    case TLType::MessagesDialogFilters:
+    {
+        TgObject box = tlDeserialize<&readTLMessagesDialogFilters>(data).toMap();
+        emit vectorDialogFilterResponse(box["filters"].toList(), messageId);
+        break;
+    }
     case TLType::MessagesDialogs:
     case TLType::MessagesDialogsNotModified:
     case TLType::MessagesDialogsSlice:
