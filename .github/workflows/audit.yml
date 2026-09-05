@@ -1,0 +1,70 @@
+# Leak audit. This is the only workflow, and deliberately so.
+#
+# There is no build job because there cannot be one: the Symbian target needs
+# the proprietary Symbian^1 / Qt 4.7.3 SDK from 2011, Windows-hosted, driven
+# through a subst drive to stay under MAX_PATH; the desktop target needs Qt
+# 4.8.7 with MinGW 4.8.2. Neither runs on a GitHub-hosted runner. A green badge
+# over an empty build is worse than no badge, so there is not one.
+#
+# No repository secret is referenced anywhere here, and none is needed: the
+# audit reads the repository, not the credentials.
+
+name: audit
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # gitleaks scans history, and the audit's force-push check reads the
+          # remote-tracking reflog.
+          fetch-depth: 0
+
+      - name: Public audit
+        shell: pwsh
+        run: |
+          ./tools/audit-public.ps1
+
+      # A syntax error in the audit makes the step above fail loudly, but a
+      # syntax error in a script it does NOT dot-source would only surface at
+      # commit time on someone's machine.
+      - name: PowerShell scripts parse
+        shell: pwsh
+        run: |
+          $bad = 0
+          Get-ChildItem -Recurse -Filter *.ps1 |
+            Where-Object { $_.FullName -notmatch 'libkg|pigler|Symbian1Qt473' } |
+            ForEach-Object {
+              try { [void][scriptblock]::Create((Get-Content -Raw $_.FullName)) }
+              catch { Write-Host "::error file=$($_.Name)::$($_.Exception.Message)"; $bad++ }
+            }
+          if ($bad) { exit 1 }
+
+      # Catches credential formats the hand-written patterns do not know about,
+      # and unlike the audit it looks at the whole history rather than the tip.
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: What this run did NOT check
+        if: always()
+        run: |
+          echo "The differential check compares the publication set against the"
+          echo "REAL values in secrets/. A runner has no secrets/, so that check"
+          echo "did not run here and a green result does not cover it."
+          echo "It runs on a developer machine, in the pre-commit and pre-push"
+          echo "hooks. See docs/security.md."

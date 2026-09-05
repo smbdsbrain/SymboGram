@@ -1,0 +1,51 @@
+name: Device report
+description: Report whether SymboGram works on a particular handset.
+labels: ["device-report"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ⚠️ **Public tracker.** No phone numbers, `api_id`, `api_hash`,
+        `auth_key`, session files or contact names/avatars.
+
+  - type: input
+    id: model
+    attributes:
+      label: Handset model
+      placeholder: "e.g. Nokia N8-00"
+    validations:
+      required: true
+
+  - type: input
+    id: firmware
+    attributes:
+      label: Firmware / platform version
+      placeholder: "e.g. Symbian Belle FP2, 111.040.1511"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: result
+    attributes:
+      label: Result
+      options:
+        - Installs and works
+        - Installs, but something is broken
+        - Will not install
+        - Installs, will not start
+    validations:
+      required: true
+
+  - type: textarea
+    id: detail
+    attributes:
+      label: Detail
+      description: What works, what does not. Screenshots welcome — crop out contact names and avatars first.
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Confirmation
+      options:
+        - label: I removed credentials, session data and other people's names, avatars and messages from everything above.
+          required: true

@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability or credential leak
+    url: https://github.com/smbdsbrain/SymboGram/security/advisories/new
+    about: Report privately. Never in a public issue.

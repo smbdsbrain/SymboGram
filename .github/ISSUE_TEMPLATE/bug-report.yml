@@ -1,0 +1,57 @@
+name: Bug report
+description: Something behaves incorrectly.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ⚠️ **This is a public issue tracker.** Never paste your phone number,
+        `api_id`, `api_hash`, an `auth_key`, or `SymboGram_user_session.ini`
+        here. For anything security-related use the
+        [private advisory form](https://github.com/smbdsbrain/SymboGram/security/advisories/new).
+
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: "e.g. f7adb11, or the SIS filename you installed"
+    validations:
+      required: true
+
+  - type: input
+    id: device
+    attributes:
+      label: Device and firmware
+      placeholder: "e.g. Nokia 808 PureView, Belle FP2 — or 'desktop build'"
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you got instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Relevant log lines
+      description: |
+        From `C:\Data\SymboGram\log.txt` on the handset, or `symbogram.log`
+        next to the desktop executable.
+
+        **Redact before pasting.** The devlog records user ids and chat
+        metadata. Remove user ids, phone numbers, chat titles and message text,
+        and never attach the whole file. A few relevant lines are more useful
+        than a dump anyway.
+      render: text
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Confirmation
+      options:
+        - label: I removed phone numbers, api_id, api_hash, auth keys, user ids and chat content from everything above.
+          required: true

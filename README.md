@@ -64,6 +64,36 @@ The second command is required: `signsis` predates PKCS#8 and reads only
 PKCS#1. Do not rely on the SDK's bundled `selfsigned.cer` — it expired years
 ago, and Symbian validates against the device clock.
 
+Once per clone, arm the local leak gates:
+
+```
+pwsh -File tools\setup-hooks.ps1
+```
+
+This installs a pre-commit and pre-push audit. `core.hooksPath` is local git
+config and is not carried by `git clone`, so it has to be set per clone — the
+build scripts also set it, so building at least once covers you.
+
+## Security and credentials
+
+`secrets/` holds the `api_id`/`api_hash`, the SIS signing key and a live
+Telegram session. It is gitignored several times over, and
+`tools\audit-public.ps1` independently checks the whole would-be commit set
+against the real values in it, reporting file names and never values.
+
+**No prebuilt binaries are published, deliberately.** Every build embeds its
+builder's `api_hash` as a plain string literal, and a debug build embeds the
+builder's filesystem paths too. Building releases in CI would fix that, but the
+Symbian^1 SDK does not run on a hosted runner — so SymboGram ships source only.
+Build it yourself.
+
+Never attach `SymboGram_user_session.ini` or a raw `symbogram.log` to an issue:
+the session file is a full account takeover and the log records user ids and
+chat metadata.
+
+Details, limits and the leak runbook: [docs/security.md](docs/security.md).
+Reporting a vulnerability: [SECURITY.md](SECURITY.md).
+
 ## Status
 
 Early. The build works and produces an installable package; the feature set is

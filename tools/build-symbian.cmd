@@ -29,6 +29,10 @@ for %%i in ("%PROJ%\..")     do set "PARENT=%%~fi"
 set "PROFILE=kutegramquick.pro"
 if exist "%PROJ%\symbogram.pro" set "PROFILE=symbogram.pro"
 
+:: core.hooksPath is local config and is NOT carried by git clone, so a fresh
+:: clone has no pre-commit or pre-push audit. Arm it here too. Idempotent.
+git -C "%PROJ%" config core.hooksPath .githooks >nul 2>&1
+
 :: --- short drive ------------------------------------------------------
 :: abld builds under epoc32\build\<mangled-full-source-path>\ and blows past
 :: MAX_PATH; the 2011 binaries are not long-path aware. qtenvS1.bat also
@@ -103,6 +107,15 @@ call bldmake bldfiles || exit /b 1
 echo [3/4] abld build gcce urel
 call ABLD.BAT build gcce urel || exit /b 1
 
+:: Scan the linked E32 image HERE, before packaging -- NOT the .sis produced in
+:: step 4. A SIS deflate-compresses its payload, so searching the package for a
+:: known-embedded string finds nothing and reports clean on a binary that
+:: provably carries it. Verified: the api_hash is present in this .exe and
+:: absent from dist\*.sis built from it. Moving this check after `make sis`
+:: would keep it green while switching it off.
+pwsh -NoProfile -ExecutionPolicy Bypass -File "%PROJ%\tools\scan-artifact.ps1" ^
+     -Path "%SDK%\epoc32\release\gcce\urel\SymboGram.exe" || exit /b 1
+
 :: --- package ------------------------------------------------------------
 :: Always pass an explicit certificate. The SDK's bundled
 :: src\s60installs\selfsigned.cer dates from ~2011 and has long expired;
@@ -128,5 +141,9 @@ for %%f in ("%WORK%\*.sis") do (
     copy /y "%%f" "%PROJ%\dist\%%~nf-symbian1-%SHA%.sis" >nul
     echo   dist\%%~nf-symbian1-%SHA%.sis
 )
+echo.
+echo This SIS is a LOCAL build. SymboGram publishes no prebuilt binaries --
+echo see docs\security.md. dist\ is gitignored and tools\audit-public.ps1
+echo rejects any binary that reaches the publication set.
 echo Done.
 endlocal

@@ -36,6 +36,11 @@ set "MINGW=C:\mingw482\mingw32"
 for %%i in ("%~dp0..") do set "PROJ=%%~fi"
 set "BUILD=%PROJ%\build-desktop"
 
+:: core.hooksPath is local config and is NOT carried by git clone, so a fresh
+:: clone has no pre-commit or pre-push audit. Arm it here too: someone who only
+:: ever builds still ends up covered. Idempotent.
+git -C "%PROJ%" config core.hooksPath .githooks >nul 2>&1
+
 if not exist "%QTDIR%\bin\qmake.exe" (echo FAILED: no qmake at %QTDIR%\bin & exit /b 1)
 if not exist "%MINGW%\bin\g++.exe"   (echo FAILED: no g++ at %MINGW%\bin & exit /b 1)
 
@@ -53,6 +58,14 @@ qmake.exe "%PROJ%\symbogram.pro" -r -spec win32-g++ "CONFIG+=release" || exit /b
 
 echo [2/2] mingw32-make
 mingw32-make -j8 || exit /b 1
+
+:: The binary embeds api_hash as a plain string literal, and a debug build also
+:: embeds this machine's source paths. Neither is a defect -- it is what an
+:: MTProto client is -- but it is exactly why nothing built here is published.
+:: This checks the rest: signing key, session values, home paths.
+echo.
+pwsh -NoProfile -ExecutionPolicy Bypass -File "%PROJ%\tools\scan-artifact.ps1" ^
+     -Path "%BUILD%\release\SymboGram.exe" || exit /b 1
 
 echo.
 echo Built: %BUILD%\release\SymboGram.exe

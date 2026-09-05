@@ -1,0 +1,30 @@
+name: Feature request
+description: Suggest something SymboGram should do.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        SymboGram targets end-of-life hardware with tight memory limits, so
+        "what would this cost on a 256 MB phone" is a fair question to expect.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve
+      description: The situation, not the solution.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you have in mind
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Confirmation
+      options:
+        - label: I have not included a phone number, api_id, api_hash, auth key or session data.
+          required: true
