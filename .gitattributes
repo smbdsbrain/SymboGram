@@ -1,0 +1,32 @@
+# Binary declarations, so `git diff` never tries to render an artifact and so
+# tools/audit-public.ps1 can trust git's own notion of "binary" when it decides
+# what to hash rather than text-scan. Deliberately narrow: a blanket
+# `* text=auto eol=lf` would renormalise line endings across the vendored
+# libkg/mbedtls, libkg/zlib, libkg/qt-json and pigler trees, which are pinned
+# byte-for-byte against the upstream commits recorded in docs/VENDORED.md.
+*.png binary
+*.jpg binary
+*.ico binary
+*.icns binary
+*.sis binary
+*.sisx binary
+*.exe binary
+*.jar binary
+*.deb binary
+
+# Build scripts are invoked by cmd.exe, which needs CRLF.
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Git hooks are run by Git Bash: a CRLF shebang line makes /bin/sh fail with a
+# bare "not found" that names no file and is very hard to diagnose.
+.githooks/* text eol=lf
+*.sh text eol=lf
+
+# Vendored trees are pinned to upstream commits; nothing may rewrite their
+# bytes on the way into or out of git.
+libkg/mbedtls/** -text
+libkg/zlib/** -text
+libkg/qt-json/** -text
+pigler/** -text
+android/gradle/** -text

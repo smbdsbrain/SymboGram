@@ -1,0 +1,63 @@
+{
+  "$comment": [
+    "Seed for .claude/settings.json, installed by tools/setup-hooks.ps1.",
+    ".claude/ is gitignored, so the live file is not version controlled and does",
+    "not survive a machine rebuild; this tracked seed is the durable copy. It is",
+    "configuration, contains no secrets, and is worth reviewing in diffs.",
+    "",
+    "The deny patterns below match the command STRING. They stop accidents, not",
+    "an adversary: flag reordering, 'git -c ... add -f', an alias or the same",
+    "command inside a .cmd file all evade them. The PreToolUse hook is the real",
+    "control - it sees the literal command and can be arbitrarily specific."
+  ],
+  "permissions": {
+    "deny": [
+      "Bash(git add -f:*)",
+      "Bash(git add --force:*)",
+      "Bash(git commit --no-verify:*)",
+      "Bash(git commit -n:*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git push --force-with-lease:*)",
+      "Bash(git config core.hooksPath:*)",
+      "Bash(git update-index --skip-worktree:*)",
+      "Bash(git filter-branch:*)",
+      "Bash(git filter-repo:*)",
+      "Read(./secrets/**)",
+      "Read(**/SymboGram_user_session.ini)",
+      "Read(./libkg/apisecrets.h)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File \"$CLAUDE_PROJECT_DIR/tools/agent-guard.ps1\" -Kind Bash"
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File \"$CLAUDE_PROJECT_DIR/tools/agent-guard.ps1\" -Kind Edit"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File \"$CLAUDE_PROJECT_DIR/tools/audit-public.ps1\" -Quiet"
+          }
+        ]
+      }
+    ]
+  }
+}

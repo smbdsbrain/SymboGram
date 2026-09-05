@@ -1,0 +1,68 @@
+#!/bin/sh
+# The last gate before anything becomes public.
+#
+# This hook is the piece J2MEgram lacks. Its audit runs only in CI, which fires
+# after the push has already happened - and a push cannot be taken back: GitHub
+# keeps serving an orphaned commit at /commit/<sha> indefinitely and mirrors the
+# push into the public events archive.
+#
+# Three checks, because they catch different things:
+#   1. the working tree             - what is about to be published
+#   2. the commit range being sent  - a secret committed five commits ago is
+#                                     invisible to check 1 on a clean tree
+#   3. non-fast-forward refusal     - rewriting history does not unpublish
+
+set -e
+
+REPO="$(git rev-parse --show-toplevel)"
+ZERO="0000000000000000000000000000000000000000"
+EMPTY_TREE="4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+PWSH="$(command -v pwsh 2>/dev/null || true)"
+if [ -z "$PWSH" ] && [ -x "/c/Program Files/PowerShell/7/pwsh.exe" ]; then
+    PWSH="/c/Program Files/PowerShell/7/pwsh.exe"
+fi
+if [ -z "$PWSH" ]; then
+    echo "pre-push: pwsh not found; refusing to push unaudited." >&2
+    exit 1
+fi
+
+AUDIT="$REPO/tools/audit-public.ps1"
+
+# 1. Working tree.
+"$PWSH" -NoProfile -ExecutionPolicy Bypass -File "$AUDIT" -Mode Publication -Quiet
+
+# 2 and 3, per ref. stdin is: <local ref> <local sha> <remote ref> <remote sha>
+while read -r local_ref local_sha remote_ref remote_sha; do
+    [ -z "$local_sha" ] && continue
+    # Deleting a remote ref pushes no content.
+    [ "$local_sha" = "$ZERO" ] && continue
+
+    if [ "$remote_sha" = "$ZERO" ]; then
+        # New branch: audit everything it introduces that is not already public.
+        base="$(git merge-base "$local_sha" origin/HEAD 2>/dev/null || true)"
+        [ -z "$base" ] && base="$EMPTY_TREE"
+    else
+        base="$remote_sha"
+
+        # A force-push replaces published history. The commit it replaces stays
+        # reachable on GitHub forever, so this does not unpublish anything - it
+        # only makes the leak harder to find. If a credential was pushed, rotate
+        # it; do not reach for --force.
+        if ! git merge-base --is-ancestor "$remote_sha" "$local_sha" 2>/dev/null; then
+            echo "" >&2
+            echo "pre-push: refusing a non-fast-forward push to $remote_ref." >&2
+            echo "          Rewriting history does NOT unpublish: GitHub still serves" >&2
+            echo "          the replaced commits at /commit/<sha>. If you are hiding a" >&2
+            echo "          leaked credential, rotate it instead - see docs/security.md." >&2
+            echo "          Deliberate rewrite: SYMBOGRAM_ALLOW_FORCE=1 git push ..." >&2
+            [ "$SYMBOGRAM_ALLOW_FORCE" = "1" ] || exit 1
+            echo "          SYMBOGRAM_ALLOW_FORCE=1 set; continuing." >&2
+        fi
+    fi
+
+    "$PWSH" -NoProfile -ExecutionPolicy Bypass -File "$AUDIT" \
+            -Mode Range -Base "$base" -Tip "$local_sha" -Quiet
+done
+
+exit 0

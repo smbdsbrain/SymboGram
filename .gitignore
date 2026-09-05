@@ -73,3 +73,75 @@ desktop.ini
 *~
 *.swp
 *.bak
+
+# --- agent / assistant instructions: local only, never published ---
+# Claude Code loads CLAUDE.md from the repo root, so it cannot live under
+# /local/. It is ignored by name instead; the substance lives in
+# local/project-notes/agents/ and the root file only imports it.
+# Unanchored on purpose: a nested src/CLAUDE.md is auto-loaded too.
+CLAUDE.md
+AGENTS.md
+GEMINI.md
+.cursor/
+.cursorrules
+.windsurfrules
+.aider*
+.continue/
+.codex/
+.github/copilot-instructions.md
+/notes/
+/docs/local/
+/scratch/
+
+# --- compiled objects and binaries: nothing built locally is ever published ---
+# A local build embeds api_hash as a plain string literal, and a debug build
+# also embeds the developer's home path. See docs/security.md.
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dll
+*.exe
+*.dso
+*.map
+*.sym
+*.lst
+*.tmp
+
+# --- qmake/moc/uic/rcc generated sources ---
+# Leading slash on the directories so these cannot reach into the vendored
+# libkg/mbedtls/ and pigler/ trees.
+moc_*.cpp
+qrc_*.cpp
+ui_*.h
+/ui/
+/rcc/
+/moc/
+/obj/
+
+# --- runtime spill: the session lives in secrets/, but a stray copy of any of
+# --- these is an account takeover, so keep them ignored wherever they land ---
+*.log
+**/SymboGram_cache.ini
+**/SymboGram_avatars/
+**/SymboGram_photos/
+**/SymboGram_user_session/
+*_session.ini
+
+# --- additional key / signing material ---
+*.crt
+*.der
+*.jks
+*.keystore
+*.p8
+*.asc
+*.gpg
+id_rsa*
+
+# --- explicit keeps: tracked files an earlier rule would otherwise shadow ---
+!config/telegram.yaml.example
+!libkg/apisecrets.h.empty
+# Upstream zlib linker version script -- a source file, not a linker map.
+# Caught by *.map above; tools/audit-public.ps1 check (i) found it.
+!libkg/zlib/zlib.map

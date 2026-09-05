@@ -1,0 +1,42 @@
+#!/bin/sh
+# Audit what is staged, before it becomes a commit.
+#
+# Installed by tools/setup-hooks.ps1 (git config core.hooksPath .githooks).
+# Note that core.hooksPath is local config: it does NOT survive a git clone.
+#
+# `git commit --no-verify` skips this hook and git offers no way to prevent
+# that. The agent guard in .claude/settings.json blocks the flag for tool-driven
+# work; for a human at the terminal it is a deliberate act. See docs/security.md.
+
+set -e
+
+REPO="$(git rev-parse --show-toplevel)"
+
+# Fail closed. A hook that cannot find its interpreter must refuse the commit,
+# never wave it through: a silent pass here is indistinguishable from a clean
+# audit and would be trusted as one.
+PWSH="$(command -v pwsh 2>/dev/null || true)"
+if [ -z "$PWSH" ] && [ -x "/c/Program Files/PowerShell/7/pwsh.exe" ]; then
+    PWSH="/c/Program Files/PowerShell/7/pwsh.exe"
+fi
+if [ -z "$PWSH" ]; then
+    echo "pre-commit: pwsh not found; refusing to commit unaudited." >&2
+    echo "            Install PowerShell 7, or commit with --no-verify and" >&2
+    echo "            run tools/audit-public.ps1 by hand before pushing." >&2
+    exit 1
+fi
+
+# Commits go to a public repository. A personal address in an author line is
+# not a secret, but it is permanent and trivially harvested.
+EMAIL="$(git config user.email || true)"
+case "$EMAIL" in
+    *@users.noreply.github.com) ;;
+    *)
+        echo "pre-commit: user.email is not a GitHub no-reply address." >&2
+        echo "            git config user.email '<id>+<login>@users.noreply.github.com'" >&2
+        exit 1
+        ;;
+esac
+
+"$PWSH" -NoProfile -ExecutionPolicy Bypass \
+        -File "$REPO/tools/audit-public.ps1" -Mode Staged -Quiet
