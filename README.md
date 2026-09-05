@@ -94,10 +94,24 @@ chat metadata.
 Details, limits and the leak runbook: [docs/security.md](docs/security.md).
 Reporting a vulnerability: [SECURITY.md](SECURITY.md).
 
+## Testing
+
+Three tiers, cheapest first — offline TL codec tests, Telegram's test data
+centres, then production. Only the first needs nothing but a toolchain:
+
+```
+pwsh -File tools\run-tlcodec.ps1         # tier 0: no network, no credentials
+pwsh -File tools\run-e2e.ps1 -Tier test  # tier 1: Telegram's test data centres
+pwsh -File tools\run-e2e.ps1 -Tier prod  # tier 2: an existing production session
+```
+
+What each tier covers, and the rather larger list of what none of them does,
+is in [docs/testing.md](docs/testing.md).
+
 ## Status
 
 Early. The build works and produces an installable package; the feature set is
-still upstream's, on API layer 166.
+still upstream's, on API layer 229.
 
 ## Licence
 
