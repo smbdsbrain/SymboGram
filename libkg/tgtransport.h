@@ -4,6 +4,7 @@
 #include <QObject>
 #include <QTcpSocket>
 #include <QBasicTimer>
+#include <QList>
 #include "debug.h"
 #include "tgstream.h"
 
@@ -52,6 +53,19 @@ private:
 
     bool initialized;
 
+    // True from the first req_pq_multi until the key exchange completes.
+    // Plaintext messages are legal only in that window, and an already-loaded
+    // authKey does not mark the end of it: a session with a key but no user id
+    // re-runs the exchange with the old key still in place.
+    bool _handshaking;
+
+    // Message ids already accepted from the server, newest last. Bounded: see
+    // acceptMessageId().
+    QList<qint64> _seenMessageIds;
+
+    // Consecutive rejected packets. Reset by the first packet that verifies.
+    qint32 _badPackets;
+
 public:
     explicit TgTransport(TgClient *parent = 0, QString sessionName = "", qint32 dcId = 0,
                          bool useTestDc = false);
@@ -93,6 +107,8 @@ public slots:
     void sendIntermediate(QByteArray data);
     QByteArray readIntermediate();
     void processMessage(QByteArray message);
+    bool acceptMessageId(qint64 messageId);
+    void countBadPacket();
     void initConnection();
     QByteArray gzipPacket(QByteArray data);
     qint64 getNewMessageId();

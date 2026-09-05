@@ -24,7 +24,11 @@ QByteArray encryptAES256IGE(QByteArray data, QByteArray iv, QByteArray key);
 QByteArray encryptRSA(QByteArray data, QByteArray key, QByteArray exp);
 QByteArray hashSHA256(QByteArray dataToHash);
 QByteArray hashSHA1(QByteArray dataToHash);
-QByteArray calcMessageKey(QByteArray authKey, QByteArray data);
+// `client` selects which half of the auth key the message key is derived from:
+// substring 88 for client-to-server, 96 for server-to-client. It has no default
+// on purpose -- the same packet must reach calcEncryptionKey() with the same
+// value, and a direction that can be omitted is a direction that gets omitted.
+QByteArray calcMessageKey(QByteArray authKey, QByteArray data, bool client);
 QByteArray calcEncryptionKey(QByteArray sharedKey, QByteArray msgKey, QByteArray &iv, bool client);
 QByteArray rsaPad(QByteArray data, DHKey key);
 qint64 randomLong();

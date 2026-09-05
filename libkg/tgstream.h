@@ -105,6 +105,12 @@ void writeRawBytes(TelegramStream& stream, QByteArray i);
 #define EXISTS(name) \
     (ID(name) != 0)
 
+// Upper bound on one transport frame. Telegram's own limit for an uploaded
+// part is 512 KB and a downloaded one 1 MB, so nothing legitimate approaches
+// this; it exists so a corrupted or hostile length prefix cannot turn into an
+// allocation.
+#define KG_MAX_FRAME (2 * 1024 * 1024)
+
 #define INT32_BYTES 4
 #define INT64_BYTES 8
 #define INT128_BYTES 16

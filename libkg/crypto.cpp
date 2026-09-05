@@ -199,8 +199,15 @@ QByteArray decryptAES256IGE(QByteArray data, QByteArray iv, QByteArray key)
     mbedtls_aes_context aes;
     mbedtls_aes_init(&aes);
     mbedtls_aes_setkey_dec(&aes, (const unsigned char*) key.constData(), 256);
-    mbedtls_aes_crypt_ige(&aes, MBEDTLS_AES_DECRYPT, data.size(), (unsigned char*) iv.data(), (const unsigned char*) data.constData(), (unsigned char*) output.data());
+    // IGE requires a whole number of 16-byte blocks and mbedtls refuses
+    // anything else. Returning the buffer regardless would hand the caller
+    // uninitialised memory to parse as a message.
+    qint32 rc = mbedtls_aes_crypt_ige(&aes, MBEDTLS_AES_DECRYPT, data.size(), (unsigned char*) iv.data(), (const unsigned char*) data.constData(), (unsigned char*) output.data());
     mbedtls_aes_free(&aes);
+
+    if (rc != 0) {
+        return QByteArray();
+    }
 
     return output;
 }
@@ -278,9 +285,12 @@ QByteArray hashSHA1(QByteArray dataToHash)
     return hash;
 }
 
-QByteArray calcMessageKey(QByteArray authKey, QByteArray data)
+QByteArray calcMessageKey(QByteArray authKey, QByteArray data, bool client)
 {
-    return hashSHA256(authKey.mid(88, 32) + data).mid(8, 16);
+    // The two directions derive the message key from different 32-byte
+    // fragments of the auth key, so verifying an inbound packet with the
+    // outbound fragment rejects every legitimate message.
+    return hashSHA256(authKey.mid(client ? 88 : 96, 32) + data).mid(8, 16);
 }
 
 QByteArray calcEncryptionKey(QByteArray authKey, QByteArray msgKey, QByteArray &iv, bool client)

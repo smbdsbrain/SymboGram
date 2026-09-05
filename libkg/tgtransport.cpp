@@ -63,6 +63,10 @@ TgTransport::TgTransport(TgClient *parent, QString sessionName, qint32 dcId,
     , authCheckMsgId(0)
 
     , initialized(false)
+
+    , _handshaking(false)
+    , _seenMessageIds()
+    , _badPackets(0)
 {
     if (_sessionName.isEmpty()) {
         _sessionName = "user_session";
@@ -407,6 +411,8 @@ void TgTransport::authorize()
 {
     kgDebug() << "DH exchange: step 1";
 
+    _handshaking = true;
+
     newNonce.clear();
     serverNonce.clear();
 
@@ -454,38 +460,178 @@ void TgTransport::processMessage(QByteArray message)
 
     QVariant var;
     readInt64(packet, var); //auth_key_id
+    qint64 keyId = var.toLongLong();
 
     qint64 messageId;
 
     QByteArray data;
 
-    if (var.toLongLong() == 0) {
+    if (keyId == 0) {
+        //An unencrypted message is legal only while the DH exchange is still
+        //establishing a key. Accepting one afterwards lets anyone who can write
+        //to the socket bypass the entire encrypted path below.
+        if (!_handshaking) {
+            kgCritical() << "Rejected: plaintext message after key exchange";
+            return;
+        }
+
+        //auth_key_id(8) + message_id(8) + length(4)
+        if (message.length() < 20) {
+            kgCritical() << "Rejected: truncated plaintext header";
+            return;
+        }
+
         readInt64(packet, var); //message_id
         messageId = var.toLongLong();
         readInt32(packet, var); //message_length
-        readRawBytes(packet, data, var.toInt());
+        qint32 plainLength = var.toInt();
+
+        if (plainLength < 0 || plainLength > message.length() - 20) {
+            kgCritical() << "Rejected: plaintext body length" << plainLength << "out of range";
+            return;
+        }
+
+        readRawBytes(packet, data, plainLength);
     } else {
-        //TODO: Important checks
-        //TODO: check auth key id
-        //TODO: check msg_key correctness
-        //TODO: NB: after decryption, msg_key must be equal to SHA-256 of data thus obtained.
+        //The inbound half of MTProto 2.0. Each check is what makes the next one
+        //meaningful, and skipping any of them hands bytes chosen by somebody
+        //else to the generated TL readers -- which have no default: case, so a
+        //wrong constructor id does not fail, it silently decodes every
+        //following field from the wrong offset.
+        if (authKey.isEmpty() || keyId != authKeyId) {
+            kgCritical() << "Rejected: auth_key_id mismatch";
+            countBadPacket();
+            return;
+        }
+
+        //24 = auth_key_id(8) + msg_key(16). The ciphertext is a whole number of
+        //AES blocks over a plaintext of at least a 32-byte header plus the
+        //12-byte minimum padding.
+        if (message.length() < 24 + 32 + 12 || ((message.length() - 24) % 16) != 0) {
+            kgCritical() << "Rejected: bad ciphertext length" << message.length();
+            countBadPacket();
+            return;
+        }
 
         QByteArray messageKey;
         readRawBytes(packet, messageKey, 16);
         QByteArray keyIv;
         QByteArray keyData = calcEncryptionKey(authKey, messageKey, keyIv, false);
 
-        TgPacket plainMessage(decryptAES256IGE(message.mid(24), keyIv, keyData));
+        QByteArray plain = decryptAES256IGE(message.mid(24), keyIv, keyData);
+        if (plain.isEmpty()) {
+            kgCritical() << "Rejected: decryption failed";
+            countBadPacket();
+            return;
+        }
+
+        //Recomputing msg_key over the decrypted bytes is the only integrity
+        //check the protocol has. Without it the ciphertext is malleable, and
+        //every check after this one runs on attacker-chosen plaintext.
+        if (calcMessageKey(authKey, plain, false) != messageKey) {
+            kgCritical() << "Rejected: msg_key mismatch";
+            countBadPacket();
+            return;
+        }
+
+        TgPacket plainMessage(plain);
         readUInt64(plainMessage, var); //remoteSalt
         readUInt64(plainMessage, var); //remoteId
+        qint64 remoteSession = var.toLongLong();
         readInt64(plainMessage, var); //remoteMessageId
         messageId = var.toLongLong();
         readInt32(plainMessage, var); //remoteSequence
         readInt32(plainMessage, var); //messageLength
-        readRawBytes(plainMessage, data, var.toInt());
+        qint32 bodyLength = var.toInt();
+
+        if (remoteSession != sessionId) {
+            kgCritical() << "Rejected: session_id mismatch";
+            countBadPacket();
+            return;
+        }
+
+        //Client message ids are divisible by 4 -- getNewMessageId leaves the
+        //low 22 bits clear -- so anything the server originates is odd. An even
+        //one is our own id coming back, which no honest server sends.
+        if ((messageId & 1) == 0) {
+            kgCritical() << "Rejected: even msg_id from server";
+            countBadPacket();
+            return;
+        }
+
+        //Padding is 12..1024 bytes and the declared body has to fit inside what
+        //was actually decrypted, or readRawBytes() below is handed a length
+        //chosen on the wire.
+        qint32 padding = plain.length() - 32 - bodyLength;
+        if (bodyLength < 0 || bodyLength > plain.length() - 32 || padding < 12 || padding > 1024) {
+            kgCritical() << "Rejected: body length" << bodyLength
+                         << "inconsistent with padding" << padding;
+            countBadPacket();
+            return;
+        }
+
+        if (!acceptMessageId(messageId)) {
+            return;
+        }
+
+        readRawBytes(plainMessage, data, bodyLength);
+
+        _badPackets = 0;
+    }
+
+    //Only a message that survived the checks above is worth acknowledging, and
+    //only here is the id known to be the server's own -- handleRpcResult
+    //re-enters handleObject with a req_msg_id, which is one of ours.
+    if (!msgsToAck.contains(messageId)) {
+        msgsToAck.append(messageId);
     }
 
     handleObject(data, messageId);
+}
+
+bool TgTransport::acceptMessageId(qint64 messageId)
+{
+    //The high 32 bits of a message id are a unix time. 300 seconds is the
+    //tolerance the server applies to ours, so it is the right window for its.
+    qint64 now = ((qint64) (QDateTime::currentDateTimeUtc().toTime_t() + timeOffset)) << 32;
+
+    //Reported, not enforced. timeOffset is derived once during the handshake,
+    //so a phone whose clock moves afterwards would otherwise reject every
+    //packet -- and the integrity this window is meant to add is already carried
+    //by msg_key.
+    if (messageId < now - (300LL << 32) || messageId > now + (30LL << 32)) {
+        kgWarning() << "Message id outside the expected time window";
+    }
+
+    if (_seenMessageIds.contains(messageId)) {
+        kgCritical() << "Rejected: replayed msg_id";
+        return false;
+    }
+
+    //A bounded ring rather than a growing set: anything evicted is far enough
+    //in the past that the transport has long since acted on it, and a set that
+    //grows with the session is a leak on a 4 MB minimum heap.
+    _seenMessageIds.append(messageId);
+    if (_seenMessageIds.size() > 64) {
+        _seenMessageIds.removeFirst();
+    }
+
+    return true;
+}
+
+void TgTransport::countBadPacket()
+{
+    //One rejected frame is noise -- the transport is length-prefixed, so the
+    //next frame still parses. Several in a row mean the key or the session is
+    //wrong, and reconnecting is cheaper than rejecting forever.
+    if (++_badPackets < 3) {
+        return;
+    }
+
+    kgCritical() << "Too many rejected packets, resetting the connection";
+    _badPackets = 0;
+    _socket->abort();
+    _disconnected();
 }
 
 void TgTransport::handleObject(QByteArray data, qint64 messageId)
@@ -496,9 +642,6 @@ void TgTransport::handleObject(QByteArray data, qint64 messageId)
     qint32 conId = var.toInt();
 
     //kgDebug() << "Got an object" << conId << ", msg id" << messageId;
-
-    if (!msgsToAck.contains(messageId))
-        msgsToAck.append(messageId);
 
     if (conId != MTType::RpcError && conId != MTType::BadMsgNotification && conId != MTType::BadServerSalt)
         pendingMessages.remove(messageId);
@@ -803,6 +946,10 @@ void TgTransport::handleDhGenOk(QByteArray data, qint64 messageId)
     //TODO: important checks
     kgDebug() << "DH completed";
 
+    //From here on the connection is encrypted, and a plaintext message is a
+    //downgrade attempt rather than a step of the exchange.
+    _handshaking = false;
+
     saveSession();
 
     initConnection();
@@ -904,7 +1051,7 @@ qint64 TgTransport::sendMTMessage(QByteArray originalData, qint64 oldMid, bool i
     writeRawBytes(packet, randomBytes((0x7FFFFFF0 - data.length()) % 16 + (randomInt(14) + 2) * 16));
 
     QByteArray packetBytes = packet.toByteArray();
-    QByteArray messageKey = calcMessageKey(authKey, packetBytes);
+    QByteArray messageKey = calcMessageKey(authKey, packetBytes, true);
     QByteArray keyIv;
     QByteArray keyData = calcEncryptionKey(authKey, messageKey, keyIv, true);
     QByteArray cipherText = encryptAES256IGE(packetBytes, keyIv, keyData);

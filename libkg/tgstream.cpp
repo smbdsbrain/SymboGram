@@ -263,6 +263,14 @@ QByteArray readFully(QIODevice &socket, qint32 length)
     QByteArray buffer;
     qint32 readed = 0, result = 0;
 
+    // The length arrives from the wire as a signed int32 and is used directly
+    // to size the buffer, so it is bounded here rather than trusted. Negative
+    // asks for a negative allocation; an oversized one asks a phone with a
+    // 4 MB minimum heap for a buffer no legitimate MTProto frame needs.
+    if (length < 0 || length > KG_MAX_FRAME) {
+        return QByteArray();
+    }
+
     buffer.reserve(length);
     buffer.resize(length);
 
