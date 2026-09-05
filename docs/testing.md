@@ -179,6 +179,32 @@ sending a message advances it by exactly what the server said it should. The
 offline tier can check the arithmetic but not that Telegram's values have the
 shape the arithmetic assumes.
 
+### The gap scenario, and why it skips
+
+`-Scenario gap` is three processes: the client records its position and
+exits, a second account sends it a message while it is gone, and the client
+starts again and has to recover what it missed. The process boundary is the
+point — a client that is merely idle still holds a connection and is still
+pushed updates, and the failure this exercises is a client that was not there.
+
+It needs a **second account**, and the reason is worth stating because the
+obvious shortcut does not work. Two sessions of one account are the same
+authorization: Telegram queues that authorization's updates and pushes them to
+whichever connection appears next, so the message arrives with no difference
+involved and the test asserts nothing. That version of this scenario passed
+with the whole recovery path disabled.
+
+**This assertion has never run.** Signing a second account into the desktop
+build needs a login code, and an account with a cloud password cannot be
+signed in at all until 2FA exists. Until one is available the scenario reports
+`# SKIP`, and a skip is not a pass — the check step has never been executed
+against a real gap, so it is unproven code rather than proven coverage.
+
+What it takes: log a second account into the desktop build with
+`SYMBOGRAM_SESSION_DIR` set to `secrets/session-b`, make sure the two accounts
+have exchanged at least one message so the sender holds an `access_hash` for
+the client, and re-run.
+
 `run-e2e.ps1` **copies** the session into `build-desktop/` before running. Do not
 work around that: `TgTransport::handleRpcError` calls `resetSession()` on any
 401, so a run against the original file destroys the login on the first
@@ -210,10 +236,9 @@ Worth reading as a list of things a green run says nothing about:
   easiest to misread as coverage.
 - **Long-running behaviour.** Ping and disconnect handling, salt rotation,
   `bad_server_salt` recovery, reconnection over hours.
-- **Gap recovery under a real gap.** The rules are checked offline and the
-  pipeline is checked live, but nothing here disconnects a client, has someone
-  send to it, and reconnects. That needs a second account, and it is what
-  `tools/e2e-oracle/` would be for.
+- **Gap recovery under a real gap.** The `gap` scenario exists for exactly
+  this and has never run: it needs a second account, and 2FA stands between us
+  and one. See the section above before reading its skip as coverage.
 - **Whether SQLite exists on the device.** Qt for Symbian builds the driver
   into QtSql rather than shipping it as a plugin, and no tier here can ask a
   handset. The app logs which answer it got; read the log rather than assuming.

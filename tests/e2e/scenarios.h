@@ -35,4 +35,11 @@ Scenario* makeSendScenario();
 Scenario* makeNegativeScenario();
 Scenario* makeUpdatesScenario();
 
+// The three halves of the gap test. Separate processes on purpose: the
+// client has to be genuinely absent while the message is created, and a
+// process boundary is the only way to be sure of that.
+Scenario* makeGapArmScenario();
+Scenario* makeGapSendScenario();
+Scenario* makeGapCheckScenario();
+
 #endif // E2E_SCENARIOS_H

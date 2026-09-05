@@ -39,8 +39,13 @@
 param(
     [ValidateSet('test', 'prod')]
     [string] $Tier = 'test',
-    [ValidateSet('connect', 'login', 'read', 'send', 'negative', 'updates', 'all')]
+    [ValidateSet('connect', 'login', 'read', 'send', 'negative', 'updates', 'gap', 'all')]
     [string] $Scenario = 'all',
+
+    # Where a SECOND account's session lives. The gap scenario needs one:
+    # a message from the same account would be pushed to it rather than
+    # recovered, and the test would assert nothing.
+    [string] $SenderSessionDir = (Join-Path $PSScriptRoot '..\secrets\session-b'),
     [string] $Phone,
     [string] $Code,
     [int]    $DeadlineSeconds = 300,
@@ -105,7 +110,7 @@ if ($Tier -eq 'prod') {
 }
 
 $scenarios = if ($Scenario -eq 'all') {
-    if ($Tier -eq 'test') { @('connect', 'negative', 'login') } else { @('connect', 'read', 'updates') }
+    if ($Tier -eq 'test') { @('connect', 'negative', 'login') } else { @('connect', 'read', 'updates', 'gap') }
 } else { @($Scenario) }
 
 if (-not $Phone) {
@@ -113,8 +118,111 @@ if (-not $Phone) {
     $Phone = "999662" + (Get-Random -Minimum 1000 -Maximum 9999)
 }
 
+# Runs one scenario and returns its exit code, printing what it produced.
+function Invoke-Scenario {
+    param(
+        [string] $Name,
+        [string] $Dir,
+        [string] $SessionName = 'e2e',
+        [string] $Text = '',
+        [string] $PeerFile = ''
+    )
+
+    $a = @("--tier=$Tier", "--only=$Name", "--session-dir=$Dir",
+           "--session-name=$SessionName", "--phone=$Phone",
+           "--deadline=$DeadlineSeconds")
+    if ($Code) { $a += "--code=$Code" }
+    if ($Text) { $a += "--text=$Text" }
+    if ($PeerFile) { $a += "--peer-file=$PeerFile" }
+
+    $out = & $exe @a 2>&1
+    $rc = $LASTEXITCODE
+    $out | ForEach-Object { Write-Host $_ }
+    return @{ Code = $rc; Skips = @($out | Where-Object { "$_" -match '# SKIP' }).Count }
+}
+
+# The gap scenario is three processes, and that is the point of it.
+#
+# A client that is merely idle still holds a connection and is still pushed
+# updates; the failure this exercises is a client that was NOT THERE. Only a
+# process boundary gives that, so the client records its position and exits, a
+# second session of the same account sends a message while it is gone, and the
+# client starts again and has to recover what it missed.
+#
+# Two session directories rather than two accounts: they are separate MTProto
+# sessions with separate update states, which is all the test needs, and it
+# keeps the suite runnable by anyone with one login.
+function Invoke-GapScenario {
+    # A session file is not a login. An abandoned sign-in leaves an auth key
+    # behind with no user id -- which is exactly what happens when the second
+    # account has a cloud password, since 2FA is not implemented yet -- and a
+    # directory test alone would send the scenario off to time out instead of
+    # saying what is wrong.
+    $senderIni = Join-Path $SenderSessionDir 'SymboGram\SymboGram_user_session.ini'
+    $signedIn = $false
+    if (Test-Path $senderIni) {
+        $signedIn = @(Get-Content $senderIni |
+                      Where-Object { $_ -match '^UserId=([1-9][0-9]*)$' }).Count -gt 0
+    }
+
+    if (-not $signedIn) {
+        Write-Host ""
+        Write-Host "--- gap ---" -ForegroundColor Cyan
+        Write-Host "1..0 # SKIP no signed-in second account at $senderIni"
+        Write-Host "# The message has to come from a DIFFERENT account: two sessions of"
+        Write-Host "# one account are the same authorization, so Telegram pushes its"
+        Write-Host "# updates to whichever connection appears next and no difference is"
+        Write-Host "# ever involved."
+        Write-Host "#"
+        Write-Host "# Log a second account into the desktop build with"
+        Write-Host "# SYMBOGRAM_SESSION_DIR pointed there. An account with a cloud"
+        Write-Host "# password cannot be used until 2FA is implemented."
+        return @{ Code = 77; Skips = 0 }
+    }
+
+    $clientDir = Join-Path $RepoRoot 'build-desktop\e2e-gap-client'
+    $senderDir = Join-Path $RepoRoot 'build-desktop\e2e-gap-sender'
+    $peerFile  = Join-Path $RepoRoot 'build-desktop\e2e-gap-peer.ini'
+
+    # Both are copies, for the reason the production tier already copies:
+    # handleRpcError calls resetSession() on any 401, so a run against an
+    # original destroys the login the first time one expires.
+    if (Test-Path $clientDir) { Remove-Item -Recurse -Force $clientDir }
+    Copy-Item -Recurse -Force $runDir $clientDir
+    if (Test-Path $senderDir) { Remove-Item -Recurse -Force $senderDir }
+    Copy-Item -Recurse -Force $SenderSessionDir $senderDir
+    if (Test-Path $peerFile) { Remove-Item -Force $peerFile }
+
+    $marker = "SymboGram gap " + [guid]::NewGuid().ToString('N').Substring(0, 12)
+
+    Write-Host ""
+    Write-Host "--- gap: record the position ---" -ForegroundColor Cyan
+    $arm = Invoke-Scenario -Name 'gap-arm' -Dir $clientDir -PeerFile $peerFile
+    if ($arm.Code -ne 0) { return $arm }
+
+    Write-Host ""
+    Write-Host "--- gap: send while the client is away ---" -ForegroundColor Cyan
+    $send = Invoke-Scenario -Name 'gap-send' -Dir $senderDir -SessionName 'user_session' `
+                            -Text $marker -PeerFile $peerFile
+    if ($send.Code -ne 0) { return $send }
+
+    Write-Host ""
+    Write-Host "--- gap: recover it ---" -ForegroundColor Cyan
+    return Invoke-Scenario -Name 'gap-check' -Dir $clientDir -Text $marker -PeerFile $peerFile
+}
+
 $fail = 0; $skip = 0
 foreach ($s in $scenarios) {
+    if ($s -eq 'gap') {
+        $r = Invoke-GapScenario
+        switch ($r.Code) {
+            0  { $skip += $r.Skips }
+            77 { $skip++ }
+            default { $fail++ }
+        }
+        continue
+    }
+
     Write-Host ""
     Write-Host "--- $s ($Tier) ---" -ForegroundColor Cyan
     $argv = @("--tier=$Tier", "--only=$s", "--session-dir=$runDir",

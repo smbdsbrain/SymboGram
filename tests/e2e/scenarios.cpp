@@ -2,6 +2,7 @@
 
 #include <QDebug>
 #include <QFile>
+#include <QSettings>
 #include <QStringList>
 
 #include "steps.h"
@@ -252,6 +253,93 @@ static QString vPtsAdvanced(const TgEvent &e, ScenarioCtx &ctx)
     return QString();
 }
 
+// --- the gap ----------------------------------------------------------------
+
+// The client half records which account it is, so the sending half -- a
+// different account, in a different process -- knows where to send.
+static QString vRecordSelf(const TgEvent &e, ScenarioCtx &ctx)
+{
+    const QString why = vSelfUser(e, ctx);
+    if (!why.isEmpty()) return why;
+
+    const QString path = ctx["peer_file"].toString();
+    if (path.isEmpty()) return "no --peer-file given";
+
+    QSettings fixture(path, QSettings::IniFormat);
+    fixture.setValue("client/id", ctx["self_id"]);
+    fixture.sync();
+
+    if (fixture.status() != QSettings::NoError)
+        return QString("could not write %1").arg(path);
+
+    return QString();
+}
+
+// The sending account has to find the client's account among its own dialogs:
+// addressing a user needs an access_hash, and an access_hash is only handed
+// out together with the peer it belongs to.
+static QString vFindTarget(const TgEvent &e, ScenarioCtx &ctx)
+{
+    const QString path = ctx["peer_file"].toString();
+    if (path.isEmpty()) return "no --peer-file given";
+
+    QSettings fixture(path, QSettings::IniFormat);
+    const qint64 target = fixture.value("client/id").toLongLong();
+    if (target == 0)
+        return "the client half recorded no account id";
+
+    const TgList users = e.obj["users"].toList();
+    for (qint32 i = 0; i < users.size(); ++i) {
+        const TgObject user = users[i].toMap();
+        if (user["id"].toLongLong() != target) continue;
+
+        TGOBJECT(TLType::InputPeerUser, peer);
+        peer["user_id"] = user["id"];
+        peer["access_hash"] = user["access_hash"];
+        ctx["target_peer"] = peer;
+        return QString();
+    }
+
+    // Not a defect in the client: the two accounts have simply never spoken,
+    // so the sender holds no access_hash for the other. Skipped rather than
+    // failed, because it is a fact about the fixture and not about the code.
+    return "~the sending account has no dialog with the client account; "
+           "message it once from either side and re-run";
+}
+
+static void iSendToTarget(TgClient *c, ScenarioCtx &ctx)
+{
+    c->messagesSendMessage(ctx["target_peer"].toMap(), ctx["text"].toString());
+}
+
+static void iDialogsWide(TgClient *c, ScenarioCtx &ctx)
+{
+    (void) ctx;
+    // A wider page than the default: the target has to be in it, and an
+    // account with many conversations would push it off a short one.
+    c->messagesGetDialogs(0, 0, TgObject(), 100);
+}
+
+// The message the sending half wrote has to come back, and the only way it can
+// is updates.getDifference: this process was not running when it was created,
+// so nothing pushed it.
+static QString vRecoveredMessage(const TgEvent &e, ScenarioCtx &ctx)
+{
+    const QString wanted = ctx["text"].toString();
+    if (wanted.isEmpty())
+        return "!no --text given, so there is nothing to look for";
+
+    const TgObject message = e.obj["message"].toMap();
+    if (message.isEmpty())
+        return QString();   // some other update; keep waiting
+
+    if (message["message"].toString() != wanted)
+        return QString();   // some other message; keep waiting
+
+    qDebug("# recovered the message sent while this client was not running");
+    return QString();
+}
+
 // --- scenarios --------------------------------------------------------------
 
 Scenario* makeConnectScenario()
@@ -310,6 +398,48 @@ Scenario* makeUpdatesScenario()
     // Saved Messages only. A test must never write into another person's chat.
     s->add(new CallStep("a sent message advances the sequence",
                         &iSendMessage, TgEvent::UpdatesState, &vPtsAdvanced, 60000));
+    return s;
+}
+
+Scenario* makeGapArmScenario()
+{
+    Scenario *s = new Scenario("gap: record the position");
+    s->add(new CallStep("transport connects", &iStart, TgEvent::Connected, &vConnected, 45000));
+    s->add(new WaitStep("initConnection accepted at this layer", TgEvent::Initialized, &vInitialized, 45000));
+    s->add(new CallStep("record which account this is", &iSelf, TgEvent::VectorUser, &vRecordSelf));
+    // Ends here on purpose. The position reached is written to the session on
+    // the way out, and the next half runs with this client shut down.
+    s->add(new WaitStep("the pipeline reports a sequence position",
+                        TgEvent::UpdatesState, &vStateSeeded, 60000));
+    return s;
+}
+
+Scenario* makeGapSendScenario()
+{
+    Scenario *s = new Scenario("gap: send while the client is away");
+    s->add(new CallStep("transport connects", &iStart, TgEvent::Connected, &vConnected, 45000));
+    s->add(new WaitStep("initConnection accepted at this layer", TgEvent::Initialized, &vInitialized, 45000));
+    s->add(new CallStep("find the client account", &iDialogsWide, TgEvent::Dialogs, &vFindTarget));
+    // A different account, so the message is genuinely inbound. Two sessions of
+    // ONE account will not do: they are the same authorization, Telegram queues
+    // that authorization's updates and pushes them to whichever connection
+    // appears next, and the message would then arrive with no difference
+    // involved -- leaving the test asserting nothing.
+    s->add(new CallStep("messages.sendMessage while the client is away",
+                        &iSendToTarget, TgEvent::UpdatesState, 0, 60000));
+    return s;
+}
+
+Scenario* makeGapCheckScenario()
+{
+    Scenario *s = new Scenario("gap: recover it");
+    s->add(new CallStep("transport connects", &iStart, TgEvent::Connected, &vConnected, 45000));
+    s->add(new WaitStep("initConnection accepted at this layer", TgEvent::Initialized, &vInitialized, 45000));
+    // The whole assertion. Nothing pushed this message -- the process that
+    // should have received it did not exist when it was sent -- so arriving at
+    // all means the difference brought it back.
+    s->add(new WaitStep("the missed message arrives in the difference",
+                        TgEvent::Update, &vRecoveredMessage, 90000));
     return s;
 }
 

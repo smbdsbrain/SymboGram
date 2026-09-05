@@ -38,6 +38,13 @@ struct Options {
     QString tier;
     QString sessionDir;
     QString sessionName;
+    // Ties the halves of the gap scenario together: one run sends it,
+    // a later run has to receive it.
+    QString text;
+    // Where the client half records who it is, so the sending half can
+    // address it. A file rather than an argument: an account id is not a
+    // secret, but it is nobody's business but this machine's.
+    QString peerFile;
     QString phone;
     QString code;
     QString only;
@@ -57,6 +64,8 @@ static int usage()
       << "  --phone=99966XYYYY    test-DC number; the code is derived from X\n"
       << "  --dc=N                test DC to bootstrap on (default: 2)\n"
       << "  --only=NAME           run one scenario\n"
+      << "  --text=STRING         message text, for the halves of the gap scenario\n"
+      << "  --peer-file=PATH      where the gap halves exchange the target account\n"
       << "  --deadline=SECONDS    hard stop (default: 600)\n"
       << "  --list                print scenario names and exit\n"
       << "\n"
@@ -98,6 +107,8 @@ int main(int argc, char *argv[])
         else if (a.startsWith("--only="))         o.only = a.mid(7);
         else if (a.startsWith("--dc="))           o.dc = a.mid(5).toInt();
         else if (a.startsWith("--deadline="))     o.deadlineSec = a.mid(11).toInt();
+        else if (a.startsWith("--text="))         o.text = a.mid(7);
+        else if (a.startsWith("--peer-file="))    o.peerFile = a.mid(12);
         else if (a == "--list")                   o.listOnly = true;
         else return usage();
     }
@@ -105,7 +116,7 @@ int main(int argc, char *argv[])
     QTextStream out(stdout);
 
     if (o.listOnly) {
-        out << "connect\nlogin\nread\nsend\nnegative\n";
+        out << "connect\nlogin\nread\nsend\nnegative\nupdates\ngap-arm\ngap-send\ngap-check\n";
         return 0;
     }
 
@@ -156,6 +167,9 @@ int main(int argc, char *argv[])
     else if (which == "send")     scenario = makeSendScenario();
     else if (which == "negative") scenario = makeNegativeScenario();
     else if (which == "updates")  scenario = makeUpdatesScenario();
+    else if (which == "gap-arm")   scenario = makeGapArmScenario();
+    else if (which == "gap-send")  scenario = makeGapSendScenario();
+    else if (which == "gap-check") scenario = makeGapCheckScenario();
     else {
         out << "1..0 # SKIP unknown scenario '" << which << "'\n";
         return 77;
@@ -175,8 +189,11 @@ int main(int argc, char *argv[])
     runner.seed("code", code);
     // An explicit --code wins over anything derived from the sentCode response.
     if (!o.code.isEmpty()) runner.seed("code_override", o.code);
-    runner.seed("text", QString("SymboGram e2e %1")
-                .arg(QDateTime::currentDateTime().toString(Qt::ISODate)));
+    runner.seed("peer_file", o.peerFile);
+    runner.seed("text", o.text.isEmpty()
+                ? QString("SymboGram e2e %1")
+                    .arg(QDateTime::currentDateTime().toString(Qt::ISODate))
+                : o.text);
 
     QObject::connect(&runner, SIGNAL(done()), &app, SLOT(quit()));
 
