@@ -79,22 +79,96 @@ What it does:
 2. Generates `libkg\apisecrets.h`.
 3. Clones the pinned toolchain into `Symbian1Qt473\` if absent (gitignored).
 4. `qmake` → `bldmake bldfiles` → `abld build gcce urel`.
-5. **Scans the linked E32 image** for signing key material, session values and
-   machine paths — see below.
+5. **Scans the uncompressed linker output** for signing key material, session
+   values and machine paths — see below for why not the E32 image.
 6. `make sis` with an explicit certificate, and copies the result to `dist\`.
 
 `bldmake` is run explicitly rather than left to the generated Makefile: make
 runs each recipe line in its own shell and `bldmake` is itself a `.bat`, so the
 `ABLD.BAT` it produces is not visible to the next line.
 
-### Why the artifact scan runs before packaging
+### The image has to fit under 4 MB of code
 
-Step 5 scans `Symbian1Qt473\epoc32\release\gcce\urel\SymboGram.exe`, **not**
-`dist\*.sis`. A SIS package deflate-compresses its payload, so a substring
-search of the package finds nothing — including things that are provably in
-there. Verified: the `api_hash` is present in the `.exe` and absent from the
-`.sis` built from it. Moving the scan after `make sis` leaves it reporting
-green while checking nothing.
+`.data` is loaded at a fixed `0x400000`, so everything before it — `.text`,
+`.rodata` and the ARM exception tables — has to fit in 4 MB. The generated TL
+schema dominates that budget and only grows: `tlschema.o` was 3.8 MB at API
+layer 166 and 5.8 MB at 229. At 229 it stopped linking:
+
+```
+arm-none-symbianelf-ld: section .data loaded at [00400000,00400003]
+  overlaps section .ARM.extab loaded at [0035be3c,004187a3]
+```
+
+about 100 KB over. `.ARM.extab` holds exception unwind tables, and GCCE emits
+them for every one of the schema's ~2470 generated functions.
+
+`symbogram.pro` therefore compiles the Symbian target with
+`OPTION GCCE -Os -fno-asynchronous-unwind-tables`, which brought `tlschema.o`
+back to 4.2 MB and the SIS to slightly *smaller* than the layer-166 build. If a
+future layer overflows again, the next lever is splitting the generator's output
+across translation units — not because that reduces the total, it does not, but
+because it makes it possible to compile the schema with stricter flags than the
+rest of the app.
+
+This failure appears **only on the Symbian target**. The desktop build links a
+1.9 MB `tlschema.cpp` without complaint, so "the desktop build is green" says
+nothing about it.
+
+### `abld` lies about failing
+
+`abld` is a Perl wrapper that shells out to `make` and does not propagate its
+exit code: the link can fail with `Error 1` and `abld` still returns 0. The
+first layer-229 build hit exactly that — the link failed, and the script
+carried on to scan the **stale** `.exe` from the previous build and package it
+as if it were the new one, exiting successfully.
+
+`tools\build-symbian.cmd` now deletes the target before calling `abld` and
+checks the file exists afterwards, so "did the link succeed" is a question for
+the filesystem rather than for `abld`. If you see
+
+```
+FAILED: abld reported success but produced no SymboGram.exe.
+```
+
+scroll up for the real error; `abld` swallowed it.
+
+### Why the artifact scan runs before packaging, and on which file
+
+Two layers of compression sit between the linker and the installer, and a
+substring search sees through neither.
+
+`make sis` deflate-compresses the payload, so searching `dist\*.sis` for a
+known-embedded string finds nothing on a package that provably carries it.
+That much was always recorded here. What was missed is that `abld` runs the
+linker output through `elftran`, and the **E32 image in
+`epoc32\release\gcce\urel\` is compressed too** -- byte-pair, compression UID
+`0x102822AA` at offset `0x1C` of the `E32ImageHeader`, 1.9 MB from a 4.0 MB
+ELF. Scanning that read compressed bytes and reported clean on everything.
+
+So the scan runs against
+`epoc32\BUILD\SymboGram\SYMBOGRAM_EXE\GCCE\urel\SymboGram.exe` -- the raw ELF,
+before `elftran`. Same code, uncompressed, and the only form a substring search
+can actually read. `build-symbian.cmd` refuses to package if that file is
+missing rather than falling back to a scan it cannot trust.
+
+**How this was caught:** `scan-artifact.ps1` *expects* the `api_hash` to be
+present and warns when it is not, on the grounds that its absence probably
+means `apisecrets.h` never reached the link. That warning appearing was the
+only signal anything was wrong. It is a canary, not decoration -- do not
+silence it.
+
+To confirm the scan is live on a given file, append a line containing this
+machine's own home directory to a **copy** of the ELF and check the scan
+exits 1. The literal form is not written out here on purpose: a document
+containing an example of what the audit looks for is rejected by the audit --
+which is exactly what happened when this paragraph first quoted one.
+
+```powershell
+Copy-Item <the ELF> $env:TEMP\ctrl.bin
+Add-Content -Value $HOME -Path $env:TEMP\ctrl.bin
+pwsh -File tools\scan-artifact.ps1 -Path $env:TEMP\ctrl.bin   # must exit 1
+Remove-Item $env:TEMP\ctrl.bin
+```
 
 ## Desktop target
 

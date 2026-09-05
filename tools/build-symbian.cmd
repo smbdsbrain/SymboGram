@@ -104,17 +104,55 @@ echo [2/4] bldmake bldfiles
 call bldmake bldfiles || exit /b 1
 
 :: --- compile ------------------------------------------------------------
+:: abld is a Perl wrapper that shells out to make and does NOT propagate make's
+:: exit code: the link can fail with "Error 1" and abld still returns 0, so the
+:: `||` below never fires. That is not hypothetical. Raising the API layer to
+:: 229 grew tlschema.o from 3.8 MB to 5.8 MB until .ARM.extab overlapped .data
+:: and the link failed -- and this script sailed straight past it, scanned the
+:: STALE .exe left by the previous build, and packaged that as if it were this
+:: one. A green run that ships the wrong binary is worse than a red one.
+::
+:: So do not ask abld whether it succeeded. Delete the target first and ask the
+:: filesystem afterwards.
+set "TARGETEXE=%SDK%\epoc32\release\gcce\urel\SymboGram.exe"
+if exist "%TARGETEXE%" del /q "%TARGETEXE%"
 echo [3/4] abld build gcce urel
 call ABLD.BAT build gcce urel || exit /b 1
+if not exist "%TARGETEXE%" (
+    echo.
+    echo FAILED: abld reported success but produced no SymboGram.exe.
+    echo Scroll up for "Error 1" or an arm-none-symbianelf-ld message; abld
+    echo swallows both. A section overlap here means the image outgrew the
+    echo 4 MB code region -- see docs\building.md.
+    exit /b 1
+)
 
-:: Scan the linked E32 image HERE, before packaging -- NOT the .sis produced in
-:: step 4. A SIS deflate-compresses its payload, so searching the package for a
-:: known-embedded string finds nothing and reports clean on a binary that
-:: provably carries it. Verified: the api_hash is present in this .exe and
-:: absent from dist\*.sis built from it. Moving this check after `make sis`
-:: would keep it green while switching it off.
+:: Scan the UNCOMPRESSED linker output, not the packaged artifacts.
+::
+:: The original reasoning here was right and stopped one layer too early. A SIS
+:: deflate-compresses its payload, so searching dist\*.sis finds nothing on a
+:: binary that provably carries the string -- hence scanning the .exe instead.
+:: But `abld` runs the linker output through elftran, and the E32 image it
+:: produces in epoc32\release is ALSO compressed: byte-pair, compression UID
+:: 0x102822AA at offset 0x1C of the E32ImageHeader. 1.9 MB compressed from a
+:: 4.0 MB ELF. A substring search over that reads compressed bytes and finds
+:: nothing -- so this gate was reporting green while checking nothing, which is
+:: the exact failure docs/security.md warns about twice.
+::
+:: Caught because scan-artifact.ps1 EXPECTS the api_hash and warns when it is
+:: missing. That warning is not decoration; it is the canary for this.
+::
+:: epoc32\BUILD\...\urel\SymboGram.exe is the raw ELF, before elftran. Same
+:: bytes, uncompressed, and it is what a substring search can actually see.
+set "LINKEDELF=%SDK%\epoc32\BUILD\%PROJNAME%\SYMBOGRAM_EXE\GCCE\urel\SymboGram.exe"
+if not exist "%LINKEDELF%" (
+    echo FAILED: no uncompressed ELF at %LINKEDELF%
+    echo The leak scan cannot run against the compressed E32 image; refusing
+    echo to package a binary that has not been scanned.
+    exit /b 1
+)
 pwsh -NoProfile -ExecutionPolicy Bypass -File "%PROJ%\tools\scan-artifact.ps1" ^
-     -Path "%SDK%\epoc32\release\gcce\urel\SymboGram.exe" || exit /b 1
+     -Path "%LINKEDELF%" || exit /b 1
 
 :: --- package ------------------------------------------------------------
 :: Always pass an explicit certificate. The SDK's bundled
