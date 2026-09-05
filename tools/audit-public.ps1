@@ -8,13 +8,21 @@
 
     Modes:
       Publication  everything git would publish - tracked files PLUS untracked
-                   files that are not ignored. Catches what a `git add .` would
-                   sweep in, not just what is already staged. Default.
-      Staged       only what is staged. Used by .githooks/pre-commit.
-      Range        the paths introduced between -Base and -Tip. Used by
-                   .githooks/pre-push, and the reason a pre-push hook exists at
-                   all: a secret committed five commits ago is invisible to a
-                   Publication audit of a clean working tree.
+                   files that are not ignored. Catches what a bulk stage would
+                   sweep in, not just what is already staged. Content is read
+                   from the working tree, which is what "publish" means here.
+                   Default.
+      Staged       what is staged, read from the index rather than the working
+                   tree - those differ, and the index is what gets committed.
+                   Used by .githooks/pre-commit.
+      Range        every blob introduced between -Base and -Tip, read out of
+                   git's object store. Used by .githooks/pre-push.
+
+    Range mode reads objects, not files, and that distinction is the whole
+    point of it. An earlier version diffed the range for names and then read
+    those names off disk. A secret added in one commit and deleted in the next
+    appears in NEITHER: not in the net diff, and not in the working tree. It
+    passed clean while the secret sat in the history about to be pushed.
 
 .EXAMPLE
     pwsh -File tools/audit-public.ps1
@@ -31,26 +39,68 @@ param(
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "_env.ps1")
 
+$EmptyTree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
 Push-Location $RepoRoot
 try {
 
 # ---------------------------------------------------------------------------
-# Candidate set
+# Candidate set. Each candidate is a path plus, where the content lives in the
+# object store rather than on disk, the blob it came from.
 # ---------------------------------------------------------------------------
-switch ($Mode) {
-    "Publication" { $raw = & git ls-files --cached --others --exclude-standard }
-    "Staged"      { $raw = & git diff --cached --name-only --diff-filter=ACMR }
-    "Range" {
-        if (-not $Base -or -not $Tip) { throw "-Mode Range requires -Base and -Tip" }
-        $raw = & git diff --name-only "$Base..$Tip"
-    }
-}
-if ($LASTEXITCODE -ne 0) {
-    Write-Bad "cannot enumerate the $Mode set"
-    exit 1
+$candidates = New-Object System.Collections.Generic.List[object]
+$seen = @{}
+
+function Add-Candidate ([string] $path, [string] $blob) {
+    if (-not $path) { return }
+    $key = "$path|$blob"
+    if ($seen.ContainsKey($key)) { return }
+    $seen[$key] = $true
+    $candidates.Add([pscustomobject]@{ Path = $path; Blob = $blob })
 }
 
-$candidates = @($raw | Where-Object { $_ } | Sort-Object -Unique)
+# ":100644 100644 <src> <dst> M\tpath" - and for a rename, two tab-separated
+# paths, of which the destination is the one being introduced.
+function Add-RawDiff ($lines) {
+    foreach ($line in $lines) {
+        if (-not $line -or $line[0] -ne ':') { continue }
+        $parts = $line -split "`t"
+        if ($parts.Count -lt 2) { continue }
+        $meta = $parts[0] -split '\s+'
+        if ($meta.Count -lt 5) { continue }
+        $dst  = $meta[3]
+        $path = $parts[$parts.Count - 1]
+        if ($dst -match '^0+$') { continue }   # deletion
+        Add-Candidate $path $dst
+    }
+}
+
+switch ($Mode) {
+    "Publication" {
+        $raw = & git ls-files --cached --others --exclude-standard
+        if ($LASTEXITCODE -ne 0) { Write-Bad "cannot enumerate the publication set"; exit 1 }
+        foreach ($p in $raw) { Add-Candidate $p $null }
+    }
+    "Staged" {
+        Add-RawDiff (& git diff --cached --raw --diff-filter=ACMR)
+        if ($LASTEXITCODE -ne 0) { Write-Bad "cannot enumerate the staged set"; exit 1 }
+    }
+    "Range" {
+        if (-not $Tip) { throw "-Mode Range requires -Tip" }
+        if (-not $Base -or $Base -eq $EmptyTree) {
+            # A brand-new branch: everything on it that is not already published.
+            $commits = @(& git rev-list $Tip --not --remotes)
+        } else {
+            $commits = @(& git rev-list "$Base..$Tip")
+        }
+        foreach ($c in $commits) {
+            if (-not $c) { continue }
+            # -m so a merge commit is compared against each parent; without it a
+            # merge introduces nothing and its content is never examined.
+            Add-RawDiff (& git diff-tree -r -m --no-commit-id --diff-filter=ACMR $c)
+        }
+    }
+}
 
 $failures = New-Object System.Collections.Generic.List[string]
 $warnings = New-Object System.Collections.Generic.List[string]
@@ -68,9 +118,42 @@ function Test-Vendored ([string] $normalized) {
     return $false
 }
 
-# In Range mode a path may name a file that a later commit deleted; skip those
-# rather than reporting them as unreadable.
-$onDisk = @($candidates | Where-Object { Test-Path -LiteralPath (Join-Path $RepoRoot $_) })
+<#
+.SYNOPSIS
+    Exact bytes of a candidate, from the object store or from disk.
+
+.DESCRIPTION
+    Read through the raw stdout stream rather than PowerShell's line pipeline:
+    the pipeline decodes to text and normalises line endings, which corrupts a
+    binary and can split a value being searched for.
+#>
+function Get-CandidateBytes ($cand) {
+    if ($cand.Blob) {
+        $psi = [Diagnostics.ProcessStartInfo]::new()
+        $psi.FileName               = "git"
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError  = $true
+        $psi.UseShellExecute        = $false
+        $psi.WorkingDirectory       = $RepoRoot
+        foreach ($a in @("cat-file", "blob", $cand.Blob)) { [void]$psi.ArgumentList.Add($a) }
+        $proc = [Diagnostics.Process]::Start($psi)
+        $ms   = New-Object IO.MemoryStream
+        $proc.StandardOutput.BaseStream.CopyTo($ms)
+        [void]$proc.StandardError.ReadToEnd()
+        $proc.WaitForExit()
+        if ($proc.ExitCode -ne 0) { return $null }
+        return $ms.ToArray()
+    }
+    $full = Join-Path $RepoRoot $cand.Path
+    if (-not (Test-Path -LiteralPath $full)) { return $null }
+    try { return [IO.File]::ReadAllBytes($full) } catch { return $null }
+}
+
+function Test-BinaryBytes ($bytes) {
+    $n = [Math]::Min($bytes.Length, 8192)
+    for ($i = 0; $i -lt $n; $i++) { if ($bytes[$i] -eq 0) { return $true } }
+    return $false
+}
 
 # ---------------------------------------------------------------------------
 # (a) private path
@@ -80,11 +163,11 @@ $privateRoots = @(
     "build-desktop/", "build-desktop-debug/", "Symbian1Qt473/",
     "obj/", "moc/", "ui/", "rcc/", "docs/local/", "notes/", "scratch/"
 )
-foreach ($path in $candidates) {
-    $n = $path.Replace("\", "/")
+foreach ($c in $candidates) {
+    $n = $c.Path.Replace("\", "/")
     foreach ($root in $privateRoots) {
         if ($n.StartsWith($root) -and -not $n.EndsWith("/.gitkeep")) {
-            Add-Failure "private or generated path" $path
+            Add-Failure "private or generated path" $c.Path
         }
     }
 }
@@ -93,7 +176,7 @@ foreach ($path in $candidates) {
 # (b) binary artifact, ANYWHERE - this is how "only CI builds are published"
 #     is actually enforced. A local build embeds api_hash as a plain literal,
 #     and a debug build also embeds the developer's home path, so no locally
-#     built binary may ever reach the publication set regardless of its path.
+#     built binary may reach the publication set regardless of its path.
 # ---------------------------------------------------------------------------
 $artifactExt = @(
     ".exe", ".sis", ".sisx", ".dll", ".so", ".o", ".obj", ".a", ".lib",
@@ -102,71 +185,71 @@ $artifactExt = @(
 # Tracked upstream files whose extension looks like an artifact but is not.
 # gradle-wrapper.jar is Android tooling; zlib.map is a linker version script
 # (a source file), not a linker map. Keep this list exact and tiny: it is the
-# only hole in check (b), and check (b) is how "no locally built binary is ever
-# published" is actually enforced.
+# only hole in check (b).
 $artifactAllowList = @(
     "android/gradle/wrapper/gradle-wrapper.jar",
     "libkg/zlib/zlib.map"
 )
-foreach ($path in $candidates) {
-    $n = $path.Replace("\", "/")
+foreach ($c in $candidates) {
+    $n = $c.Path.Replace("\", "/")
     if ($artifactAllowList -contains $n) { continue }
     if ($artifactExt -contains [IO.Path]::GetExtension($n).ToLowerInvariant()) {
-        Add-Failure "locally built artifact" $path
+        Add-Failure "locally built artifact" $c.Path
     }
 }
 
 # ---------------------------------------------------------------------------
 # (c) contact media by name
 # ---------------------------------------------------------------------------
-foreach ($path in $candidates) {
-    $n    = $path.Replace("\", "/")
+foreach ($c in $candidates) {
+    $n    = $c.Path.Replace("\", "/")
     $leaf = [IO.Path]::GetFileName($n)
     if ($n -match "_avatars/" -or $n -match "_photos/" -or $leaf -match '^\d{10,}\.(jpg|png)$') {
-        Add-Failure "contact media" $path
+        Add-Failure "contact media" $c.Path
     }
 }
 
 # ---------------------------------------------------------------------------
-# (d) avatar content hash - catches an avatar copied and renamed into img/.
-#     The ~118 avatar files are binaries: hash-compare only, never text-scan.
+# Read every candidate once. Hash it for check (d); keep the text for (e)-(g).
+# Skip logs and anything large: a log yields junk key/value pairs and floods
+# the comparison set. Binaries are hashed but never text-scanned.
 # ---------------------------------------------------------------------------
 $avatarHashes = @{}
+$avatarSizes  = @{}
 if (Test-Path -LiteralPath $SessionDir) {
     $media = Get-ChildItem -LiteralPath $SessionDir -Recurse -File -ErrorAction SilentlyContinue |
              Where-Object { $_.DirectoryName -match "_avatars|_photos" }
     foreach ($m in $media) {
-        $h = (Get-FileHash -Algorithm SHA256 -LiteralPath $m.FullName).Hash
-        $avatarHashes[$h] = $true
-    }
-}
-if ($avatarHashes.Count -gt 0) {
-    # Size is a free pre-filter: hashing all ~600 candidates costs seconds and
-    # this runs in a pre-commit hook. A renamed avatar keeps its byte length.
-    $avatarSizes = @{}
-    foreach ($m in $media) { $avatarSizes[$m.Length] = $true }
-    foreach ($path in $onDisk) {
-        $full = Join-Path $RepoRoot $path
-        $info = Get-Item -LiteralPath $full
-        if ($info.Length -eq 0 -or -not $avatarSizes.ContainsKey($info.Length)) { continue }
-        $h = (Get-FileHash -Algorithm SHA256 -LiteralPath $full).Hash
-        if ($avatarHashes.ContainsKey($h)) { Add-Failure "contact media by content" $path }
+        $avatarHashes[(Get-FileHash -Algorithm SHA256 -LiteralPath $m.FullName).Hash] = $true
+        $avatarSizes[$m.Length] = $true
     }
 }
 
-# ---------------------------------------------------------------------------
-# Read the text candidates once. Skip binaries, logs and anything large: a log
-# yields junk key/value pairs and floods the comparison set.
-# ---------------------------------------------------------------------------
+$sha256 = [Security.Cryptography.SHA256]::Create()
+$latin1 = [Text.Encoding]::GetEncoding(28591)
 $candidateText = @{}
-foreach ($path in $onDisk) {
-    $full = Join-Path $RepoRoot $path
-    $info = Get-Item -LiteralPath $full
-    if ($info.Length -gt 4MB) { continue }
-    if ([IO.Path]::GetExtension($path).ToLowerInvariant() -eq ".log") { continue }
-    if (Test-BinaryFile $full) { continue }
-    try { $candidateText[$path] = [IO.File]::ReadAllText($full) }
-    catch { Add-Failure "unreadable publication file" $path }
+$scanned = 0
+
+foreach ($c in $candidates) {
+    $bytes = Get-CandidateBytes $c
+    if ($null -eq $bytes) { continue }
+
+    # (d) avatar content. Size is a free pre-filter - a renamed avatar keeps its
+    #     byte length - and this runs in a pre-commit hook.
+    if ($avatarHashes.Count -gt 0 -and $bytes.Length -gt 0 -and $avatarSizes.ContainsKey([int64]$bytes.Length)) {
+        $h = ($sha256.ComputeHash($bytes) | ForEach-Object { $_.ToString("x2") }) -join ""
+        if ($avatarHashes.ContainsKey($h.ToUpperInvariant())) {
+            Add-Failure "contact media by content" $c.Path
+        }
+    }
+
+    if ($bytes.Length -gt 4MB) { continue }
+    if ([IO.Path]::GetExtension($c.Path).ToLowerInvariant() -eq ".log") { continue }
+    if (Test-BinaryBytes $bytes) { continue }
+    # Latin-1 is byte-transparent, so a substring search over this string is a
+    # search over the original bytes.
+    $candidateText[$c.Path] = $latin1.GetString($bytes)
+    $scanned++
 }
 
 # ---------------------------------------------------------------------------
@@ -183,6 +266,7 @@ $credentialPatterns = @(
     "(?i)\b(api[_-]?hash|auth[_-]?key|password|access[_-]?token)\s*[:=]\s*(['`"][A-Za-z0-9_+/\-]{16,}['`"]|[0-9a-f]{32,})",
     'SYMBOGRAM_API_HASH\s+"[0-9a-fA-F]{32}"'
 )
+
 # Machine-specific paths. C:\Qt\4.8.7 and C:\mingw482 in tools/build-desktop.cmd
 # are intentional documentation and are not matched by the home-directory forms.
 #
@@ -195,10 +279,10 @@ $credentialPatterns = @(
 # documentation for exactly this reason.)
 #
 # Each element is parenthesised deliberately. PowerShell binds "," TIGHTER than
-# "+", so without the parentheses @('a' + $u + 'b', 'c' + $h + 'd') builds ONE
-# space-joined string instead of a list, and the whole check silently matches
-# nothing while still reporting green. That is not hypothetical: it shipped here
-# and was caught only by the negative test in docs/security.md.
+# "+", so without the parentheses this builds ONE space-joined string instead of
+# a list, and the whole check silently matches nothing while still reporting
+# green. That is not hypothetical: it shipped here and was caught only by the
+# negative test in docs/security.md.
 $u = "Users"
 $h = "home"
 $personalPatterns = @(
@@ -208,6 +292,7 @@ $personalPatterns = @(
     '(?m)^S:\\'
 )
 if ($personalPatterns.Count -ne 4) { throw "personalPatterns collapsed: $($personalPatterns.Count)" }
+
 foreach ($entry in $candidateText.GetEnumerator()) {
     $n = $entry.Key.Replace("\", "/")
     if (Test-Vendored $n) { continue }
@@ -252,15 +337,15 @@ foreach ($p in $mustBeIgnored) {
 # ---------------------------------------------------------------------------
 # (i) no ignore rule shadows a tracked file. Not a one-off validation: the
 #     vendored trees will be re-synced from upstream, and a future sync could
-#     introduce a tracked .exe/.map/.a that the new rules silently start hiding.
-# ---------------------------------------------------------------------------
+#     introduce a tracked .exe/.map/.a that the rules silently start hiding.
 #
-#     `git ls-files --cached --ignored` asks exactly this question in one call.
+#     "git ls-files --cached --ignored" asks exactly this question in one call.
 #     Two implementations were rejected first, and both LOOKED like they worked:
-#     a per-file `git check-ignore` loop reports nothing for tracked paths
-#     unless --no-index is passed, and `--stdin` receives no input when piped
+#     a per-file "git check-ignore" loop reports nothing for tracked paths
+#     unless --no-index is passed, and --stdin receives no input when piped
 #     from PowerShell. Each produced a clean result while checking nothing, so
 #     the positive control in docs/security.md is not optional.
+# ---------------------------------------------------------------------------
 $shadowed = @(& git ls-files --cached --ignored --exclude-standard)
 foreach ($path in $shadowed) {
     if ($path) { Add-Failure "ignore rule shadows a tracked file" $path }
@@ -307,7 +392,7 @@ if ($failures.Count -gt 0) {
 }
 
 if (-not $Quiet) {
-    Write-Ok "$Mode audit passed: $($candidates.Count) path(s), $($candidateText.Count) scanned as text"
+    Write-Ok "$Mode audit passed: $($candidates.Count) path(s), $scanned scanned as text"
     Write-Ok "no private path, artifact, contact media, credential format or machine path"
 }
 
