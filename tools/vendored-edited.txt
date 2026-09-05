@@ -1,0 +1,44 @@
+# Vendored files SymboGram has deliberately edited, and why.
+#
+# docs/VENDORED.md says "no remaining file has been edited". That is true of
+# mbedtls, zlib, qt-json, pigler and tl-generator -- and it was never true of
+# libkg/, which is a fork, not a pinned dependency: the rename to SymboGram
+# and the Symbian build fixes land in it by definition. Recording the edits
+# here rather than leaving the claim overbroad is also how the GPL-3.0
+# "state what you changed" obligation stops being prose and starts being
+# checkable: tools/verify-vendored.py --online fails on any edit NOT listed
+# below, so a new one cannot pass unnoticed.
+#
+# Format: one path per line. Comments and blank lines ignored.
+# Line-ending-only differences are reported separately and never count as
+# edits -- libkg/ was renormalised to CRLF during the rename.
+
+# --- libkg: the KUTEGRAM_ -> SYMBOGRAM_ rename ---
+# apisecrets.h.empty  the two macro names the build reads
+# tgc_auth.cpp        SYMBOGRAM_API_ID / SYMBOGRAM_API_HASH at the call site
+# tgtransport.cpp     SYMBOGRAM_API_ID in initConnection
+# tgclient.cpp        the QML module name registered for TgClient/TgStream/TgPacket
+libkg/apisecrets.h.empty
+libkg/tgc_auth.cpp
+libkg/tgtransport.cpp
+libkg/tgclient.cpp
+
+# --- libkg: test-environment plumbing ---
+# tgtransport.{h,cpp}  testMode was a hardcoded false with the comment "change
+#                      it for debugging or whatever". It is a constructor
+#                      argument now, so one binary can reach both environments;
+#                      the e2e harness needs that and recompiling to switch DCs
+#                      let the two paths drift apart unnoticed.
+# tgclient.{h,cpp}     carries the flag and, critically, passes it into the
+#                      children getClientForDc() creates -- a child without it
+#                      would open a PRODUCTION connection holding a TEST auth
+#                      key, which presents as a codec bug.
+libkg/tgtransport.h
+libkg/tgclient.h
+
+# --- libkg: not a rename ---
+# crypto.cpp  the entropy personalisation string. mbedtls_ctr_drbg_seed is
+#             called with a hardcoded length of 20, so the replacement had to
+#             be exactly 20 bytes; "symbogram_random_lol_" would have been 21
+#             and silently truncated. A comment now records that constraint.
+libkg/crypto.cpp

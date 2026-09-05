@@ -31,3 +31,12 @@ libkg/zlib/os400
 
 # --- qt-json: demo application ---
 libkg/qt-json/example
+
+# --- tl-generator: demo application, and git metadata for an inlined submodule
+# .gitmodules would describe a submodule that is no longer one, and the nested
+# .gitignore would apply ignore rules to a subtree of a repository that already
+# ignores build output globally -- an ignore rule inside a vendored tree is
+# exactly the kind of thing audit check (i) exists to catch.
+tools/tl-generator/.gitignore
+tools/tl-generator/.gitmodules
+tools/tl-generator/qt-json/example
