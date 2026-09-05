@@ -69,6 +69,30 @@ Checks, and what each is really for:
 | h | `secrets/` is genuinely ignored, asked of git rather than read off `.gitignore` | |
 | i | No ignore rule shadows a tracked file | |
 | j | Force-push orphans in the remote-tracking reflog | Warning only. |
+| k | **Hex-encoded content, decoded and re-scanned** through (e) and (g) | Hex defeats a substring search completely. `tests/vectors/` holds recorded MTProto packets, so this closes a hole that directory opens. |
+| l | Every file under `tests/vectors/` declares `# source:`, and only `test-dc` or `synthetic` is accepted | No pattern can tell a real chat title from a fake one. Provenance is the only enforceable rule. |
+
+**Checks (k) and (l) exist because of recorded TL packets.** A captured packet
+is stored as hex text, and an `api_hash` inside one shares no substring with the
+value (g) is looking for — so (g) sails straight past it. Check (k) decodes
+every hex run of 16 characters or more and re-runs (e) and (g) over the result.
+It is not restricted to `tests/vectors/`: a packet pasted into a Markdown file
+or a C++ string literal leaks just as well.
+
+The 16-character floor is 8 bytes, and it is load-bearing. Every value the
+differential check harvests must expand above it or (k) cannot see the value at
+all; the shortest today is an 8-digit `api_id`, expanding to exactly 16. The
+first version of this used a 32-character floor and silently missed both the
+`api_id` and the `UserId` — caught only because `tools/test-audit.ps1` tests
+**every** harvested value rather than one of them.
+
+What (k) cannot do is recognise somebody's chat title, because a real one looks
+like any other text. That is what (l) is for: a vector must say where its bytes
+came from, and only Telegram's test environment counts. Test-DC accounts are
+handed out to anyone (`99966XYYYY`, code = the DC id five times) and wiped
+periodically, so a packet from one is genuinely publishable. A packet from
+production never is, and a vector with no header is exactly what an accidental
+production capture looks like — so a missing header is a failure, not a warning.
 
 **Check (g) is the one that matters most.** Rather than guessing at credential
 shapes, it reads the actual values out of `secrets/` and looks for those exact
@@ -153,12 +177,24 @@ Both build scripts run `tools/scan-artifact.ps1` on the linked executable,
 which looks for the signing key, session values and home paths, and reports
 through a digest rather than a value.
 
-> **Scan the `.exe`, never the `.sis`.** A SIS package deflate-compresses its
-> payload. Searching `dist/*.sis` for the `api_hash` finds nothing — on a binary
-> that provably contains it. The Symbian scan therefore runs on
-> `Symbian1Qt473\epoc32\release\gcce\urel\SymboGram.exe` immediately after
-> `abld build` and before `make sis`. Moving it later would leave the check
-> green and useless.
+> **Scan the uncompressed ELF, not the E32 image and not the `.sis`.**
+> Two layers of compression sit between the linker and the installer and a
+> substring search sees through neither. A SIS deflate-compresses its payload,
+> so searching `dist/*.sis` for the `api_hash` finds nothing on a package that
+> provably contains it. Less obviously, `abld` runs the linker output through
+> `elftran` and the E32 image in `epoc32\release\` is **byte-pair compressed**
+> as well (compression UID `0x102822AA`, 1.9 MB from a 4.0 MB ELF) -- so the
+> scan that ran there was reading compressed bytes and reporting clean on
+> everything. That is the third check in this repository to have shipped green
+> while testing nothing.
+>
+> The Symbian scan therefore runs on the raw ELF at
+> `epoc32\BUILD\SymboGram\SYMBOGRAM_EXE\GCCE\urel\SymboGram.exe`, after
+> `abld build` and before `make sis`, and `build-symbian.cmd` refuses to
+> package if that file is absent rather than scanning something it cannot read.
+>
+> It was caught by the scanner's own canary: it *expects* the `api_hash` to be
+> present and warns when it is not. Do not silence that warning.
 
 The honest way to publish binaries is to build them where there is nothing
 personal to embed. That needs a CI runner with the Symbian^1 / Qt 4.7.3 SDK,
@@ -168,8 +204,21 @@ which GitHub-hosted runners cannot provide. Until then, source only.
 
 An audit that never fails is indistinguishable from one that checks nothing.
 Three defects during this setup each reported green while checking nothing, and
-only these tests found them. Re-run this after touching `.gitignore` or the
-audit.
+only these tests found them. A fourth was found the same way afterwards: check
+(k) shipped with a hex-run floor that its own control immediately proved too
+high. Re-run this after touching `.gitignore` or the audit.
+
+The controls for (k) and (l) are automated, including one that hex-encodes each
+real local secret without ever printing it:
+
+```powershell
+pwsh -File tools/test-audit.ps1
+```
+
+It also asserts that a *well-formed* vector is accepted — otherwise (l) could
+pass its rejection tests by simply banning the directory.
+
+The rest are still by hand:
 
 ```powershell
 # 1. clean tree passes, and the audit does not reject its own source

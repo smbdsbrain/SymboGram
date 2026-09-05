@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Audit what is about to become public, before it becomes public.
 
@@ -317,6 +317,115 @@ foreach ($entry in $candidateText.GetEnumerator()) {
             if ($s.Severity -eq "warn") { Add-Warning "local value ($($s.Name))" $entry.Key }
             else                        { Add-Failure "exact local secret value ($($s.Name))" $entry.Key }
         }
+    }
+}
+
+# ---------------------------------------------------------------------------
+# (k) hex-encoded content, decoded and re-scanned.
+#
+#     Checks (e) and (g) above search a file's bytes for a literal value. Hex
+#     text defeats both completely: an api_hash sitting inside a recorded
+#     MTProto packet is present in the file as its hex expansion, which shares
+#     no substring with the value being searched for. The same is true of a real
+#     chat title, username or message body inside a captured packet.
+#
+#     tests/vectors/ exists precisely to hold recorded packets, so this is not a
+#     theoretical gap - it is a hole opened by the thing that directory adds.
+#     Decode every long hex run and run (e) and (g) again over the result.
+#
+#     Deliberately not restricted to tests/vectors/: hex is hex, and a packet
+#     pasted into a Markdown file or a C++ string literal leaks exactly as well.
+#     tests/tlcodec/main.cpp is full of hex literals and is scanned for that
+#     reason rather than in spite of it.
+#
+#     What this does NOT catch, stated plainly so nobody over-trusts it: values
+#     that are not byte-identical inside the packet. A session id or server salt
+#     is an int64 and appears as eight little-endian bytes, not as the decimal
+#     string Get-LocalSecretValues harvests. Provenance - check (l) - is what
+#     covers that, not this.
+# ---------------------------------------------------------------------------
+#     The 16-character floor is 8 bytes, and it is a real limit, not a round
+#     number: every value Get-LocalSecretValues harvests must survive hex
+#     expansion above it or this check cannot see it at all. The shortest today
+#     is an 8-digit api_id, which expands to exactly 16. tools/test-audit.ps1
+#     asserts that for EVERY harvested value, so adding a shorter secret fails
+#     the controls rather than quietly going unprotected.
+#
+#     Going lower is not free: 8 characters would decode every 32-bit
+#     constructor id in tests/tlcodec/main.cpp and every short hash in the tree.
+$hexRun = [regex] '(?i)(?<![0-9a-f])[0-9a-f]{16,}(?![0-9a-f])'
+$decodedText = @{}
+foreach ($entry in $candidateText.GetEnumerator()) {
+    $runs = $hexRun.Matches($entry.Value)
+    if ($runs.Count -eq 0) { continue }
+
+    $sb = New-Object System.Text.StringBuilder
+    foreach ($m in $runs) {
+        $s = $m.Value
+        # An odd-length run cannot be whole bytes. Drop the last nibble rather
+        # than the whole run, so a hex blob abutting a word character still gets
+        # looked at.
+        if ($s.Length % 2) { $s = $s.Substring(0, $s.Length - 1) }
+        $n = [int]($s.Length / 2)
+        $buf = New-Object byte[] $n
+        for ($i = 0; $i -lt $n; $i++) {
+            $buf[$i] = [Convert]::ToByte($s.Substring($i * 2, 2), 16)
+        }
+        [void] $sb.Append($latin1.GetString($buf))
+        # Separator, so a value cannot be manufactured across two unrelated runs.
+        [void] $sb.Append("`n")
+    }
+    $decodedText[$entry.Key] = $sb.ToString()
+}
+
+foreach ($entry in $decodedText.GetEnumerator()) {
+    $dn = $entry.Key.Replace("\", "/")
+    if (-not (Test-Vendored $dn)) {
+        foreach ($p in $credentialPatterns) {
+            if ($entry.Value -match $p) { Add-Failure "possible credential (hex-decoded)" $entry.Key; break }
+        }
+    }
+    # As with (g), this applies to vendored trees too.
+    foreach ($s in $localValues) {
+        if ($entry.Value.Contains($s.Value)) {
+            if ($s.Severity -eq "warn") { Add-Warning "local value, hex-decoded ($($s.Name))" $entry.Key }
+            else                        { Add-Failure "exact local secret value, hex-decoded ($($s.Name))" $entry.Key }
+        }
+    }
+}
+
+# ---------------------------------------------------------------------------
+# (l) recorded-packet provenance.
+#
+#     A TL vector captured from a production session is somebody's chat list,
+#     and no pattern check can recognise that - a real chat title is just text.
+#     The only enforceable rule is where the bytes came from, so every file
+#     under tests/vectors/ must say, and only the test environment is allowed.
+#
+#     Telegram's test DCs hand out accounts to anyone who asks (99966XYYYY,
+#     code = the DC id five times) and wipe them periodically, so a packet from
+#     one is genuinely publishable. A packet from production never is.
+#
+#     Missing or unreadable provenance is a failure, not a warning: a vector
+#     with no header is exactly what an accidental prod capture looks like.
+# ---------------------------------------------------------------------------
+$vectorRoot = "tests/vectors/"
+foreach ($c in $candidates) {
+    $vn = $c.Path.Replace("\", "/")
+    if (-not $vn.StartsWith($vectorRoot)) { continue }
+    if ($vn.EndsWith(".md")) { continue }
+
+    $vtext = $candidateText[$c.Path]
+    if ($null -eq $vtext) {
+        Add-Failure "vector unreadable as text (must be hex, not binary)" $c.Path
+        continue
+    }
+    if ($vtext -notmatch '(?m)^#\s*source:\s*(\S+)') {
+        Add-Failure "vector has no '# source:' provenance line" $c.Path
+        continue
+    }
+    if ($Matches[1] -ne "test-dc" -and $Matches[1] -ne "synthetic") {
+        Add-Failure "vector provenance is neither test-dc nor synthetic" $c.Path
     }
 }
 
