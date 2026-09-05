@@ -192,7 +192,6 @@ void MessagesModel::updatesReset()
         return;
     }
 
-    lock.unlock();
     kgInfo() << "Update sequence was reset, reloading the open chat";
     reloadHistory();
 }
@@ -206,7 +205,6 @@ void MessagesModel::channelReset(TgLongVariant channelId)
         return;
     }
 
-    lock.unlock();
     kgInfo() << "Channel" << channelId << "sequence was reset, reloading the open chat";
     reloadHistory();
 }

@@ -30,6 +30,10 @@ private:
     FoldersModel* _folders;
     qint32 _lastPinnedIndex;
 
+    // True while the list on screen came from the cache and no network answer
+    // has replaced it yet.
+    bool _fromCache;
+
     enum DialogRoles {
         TitleRole = Qt::UserRole + 1,
         ThumbnailColorRole,
@@ -64,6 +68,12 @@ public:
     TgObject createRow(TgObject dialog, TgObject peer, TgObject message, TgObject messageSender, QList<TgObject> folders, TgList users, TgList chats);
     void handleDialogMessage(TgObject &row, TgObject message, TgObject messageSender, TgList users, TgList chats);
     void prepareNotification(TgObject row);
+
+    // Builds the rows for one page. Shared by the network response and the
+    // cached list, so the two cannot render the same dialog differently.
+    QList<TgObject> buildRows(TgList dialogsList, TgList messagesList,
+                              TgList usersList, TgList chatsList);
+    void seedFromCache();
 
 signals:
     void sendNotification(qint64 peerId, QString peerName, QString senderName, QString text, bool silent);

@@ -21,6 +21,7 @@ DialogsModel::DialogsModel(QObject *parent)
     , _avatarDownloader(0)
     , _folders(0)
     , _lastPinnedIndex(-1)
+    , _fromCache(false)
 {
 #if QT_VERSION < 0x050000
     setRoleNames(roleNames());
@@ -83,6 +84,7 @@ void DialogsModel::resetState()
     _offsets = TgObject();
     _offsets["_start"] = true;
     _lastPinnedIndex = -1;
+    _fromCache = false;
 }
 
 QHash<int, QByteArray> DialogsModel::roleNames() const
@@ -186,6 +188,7 @@ void DialogsModel::authorized(TgLongVariant userId)
     if (_userId != userId) {
         resetState();
         _userId = userId;
+        seedFromCache();
         fetchMoreDownwards();
     }
 }
@@ -222,6 +225,45 @@ void DialogsModel::messagesGetDialogsResponse(TgObject data, TgLongVariant messa
         return;
     }
 
+    QList<TgObject> dialogsRows = buildRows(dialogsList, messagesList, usersList, chatsList);
+
+    // The answer supersedes the cached list rather than being merged into it.
+    // Order, unread counts and titles may all have moved while the app was
+    // closed, and merging would show both versions of each.
+    //
+    // A reset rather than a removal followed by an insertion: removing every
+    // row leaves the view holding delegates for indices that no longer exist,
+    // and each one re-evaluates its bindings against them before it is torn
+    // down. A reset tells the view the whole thing changed and it rebuilds.
+    if (_fromCache) {
+        _fromCache = false;
+        _lastPinnedIndex = -1;
+
+        beginResetModel();
+        _dialogs = dialogsRows;
+        endResetModel();
+    } else {
+        beginInsertRows(QModelIndex(), _dialogs.size(), _dialogs.size() + dialogsRows.size() - 1);
+        _dialogs.append(dialogsRows);
+        endInsertRows();
+    }
+
+    if (_avatarDownloader) {
+        for (qint32 i = 0; i < usersList.size(); ++i) {
+            _avatarDownloader->downloadAvatar(usersList[i].toMap());
+        }
+        for (qint32 i = 0; i < chatsList.size(); ++i) {
+            _avatarDownloader->downloadAvatar(chatsList[i].toMap());
+        }
+    }
+
+    if (canFetchMoreDownwards())
+        fetchMoreDownwards();
+}
+
+QList<TgObject> DialogsModel::buildRows(TgList dialogsList, TgList messagesList,
+                                       TgList usersList, TgList chatsList)
+{
     QList<TgObject> dialogsRows;
     dialogsRows.reserve(dialogsList.size());
 
@@ -287,21 +329,90 @@ void DialogsModel::messagesGetDialogsResponse(TgObject data, TgLongVariant messa
         dialogsRows.append(createRow(lastDialog, lastPeer, lastMessage, messageSender, folders, usersList, chatsList));
     }
 
-    beginInsertRows(QModelIndex(), _dialogs.size(), _dialogs.size() + dialogsRows.size() - 1);
-    _dialogs.append(dialogsRows);
-    endInsertRows();
+    return dialogsRows;
+}
 
-    if (_avatarDownloader) {
-        for (qint32 i = 0; i < usersList.size(); ++i) {
-            _avatarDownloader->downloadAvatar(usersList[i].toMap());
+void DialogsModel::seedFromCache()
+{
+    if (!_client) {
+        return;
+    }
+
+    TgStore *store = _client->store();
+    if (!store->isOpen()) {
+        return;
+    }
+
+    const TgList cachedDialogs = store->dialogs(0, 40);
+    if (cachedDialogs.isEmpty()) {
+        return;
+    }
+
+    // Assembled into the same four lists a response arrives in, so buildRows
+    // needs no idea where any of it came from.
+    TgList messagesList;
+    TgList usersList;
+    TgList chatsList;
+
+    for (qint32 i = 0; i < cachedDialogs.size(); ++i) {
+        const TgObject peer = cachedDialogs[i].toMap()["peer"].toMap();
+
+        qint64 peerId = 0;
+        qint32 kind = 0;
+        switch (ID(peer)) {
+        case TLType::PeerUser:    peerId = peer["user_id"].toLongLong();    kind = TLType::User; break;
+        case TLType::PeerChat:    peerId = peer["chat_id"].toLongLong();    kind = TLType::Chat; break;
+        case TLType::PeerChannel: peerId = peer["channel_id"].toLongLong(); kind = TLType::Chat; break;
+        default: continue;
         }
-        for (qint32 i = 0; i < chatsList.size(); ++i) {
-            _avatarDownloader->downloadAvatar(chatsList[i].toMap());
+
+        const TgObject cachedPeer = store->peer(peerId, kind);
+        if (!EMPTY(cachedPeer)) {
+            if (kind == TLType::User) {
+                usersList.append(cachedPeer);
+            } else {
+                chatsList.append(cachedPeer);
+            }
+        }
+
+        const TgList top = store->messages(peerId, kind, 0, 1);
+        if (top.isEmpty()) {
+            continue;
+        }
+
+        const TgObject message = top[0].toMap();
+        messagesList.append(message);
+
+        const qint64 senderId = TgClient::getPeerId(message["from_id"].toMap()).toLongLong();
+        if (senderId == 0) {
+            continue;
+        }
+
+        const TgObject sender = peerCache().byId(senderId);
+        if (EMPTY(sender)) {
+            continue;
+        }
+        if (TgClient::isUser(sender)) {
+            usersList.append(sender);
+        } else {
+            chatsList.append(sender);
         }
     }
 
-    if (canFetchMoreDownwards())
-        fetchMoreDownwards();
+    const QList<TgObject> rows = buildRows(cachedDialogs, messagesList, usersList, chatsList);
+    if (rows.isEmpty()) {
+        return;
+    }
+
+    // Marked, so the first page from the network replaces this rather than
+    // being appended after it.
+    _fromCache = true;
+
+    beginInsertRows(QModelIndex(), _dialogs.size(), _dialogs.size() + rows.size() - 1);
+    _dialogs.append(rows);
+    endInsertRows();
+
+    kgInfo() << "Showed" << rows.size() << "dialogs from the cache";
 }
 
 void DialogsModel::handleDialogMessage(TgObject &row, TgObject message, TgObject messageSender, TgList users, TgList chats)
@@ -422,6 +533,9 @@ void DialogsModel::avatarDownloaded(TgLongVariant photoId, QString filePath)
 void DialogsModel::refresh()
 {
     resetState();
+    // Before the request, not after: the point is to have something on screen
+    // while the network is still being waited on.
+    seedFromCache();
     fetchMoreDownwards();
 }
 
