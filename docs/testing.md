@@ -24,6 +24,9 @@ change introduces, and it is why the codec tier exists.
 
 ```
 pwsh -File tools\run-tlcodec.ps1
+pwsh -File tools\run-crypto.ps1
+pwsh -File tools\run-updates.ps1
+pwsh -File tools\run-store.ps1
 pwsh -File tools\gen-schema.ps1 -Check -Layer 229 -Api schema\api.tl
 python tools\verify-vendored.py
 pwsh -File tools\audit-public.ps1
@@ -63,16 +66,39 @@ provenance proof that the vendored generator faithfully reproduces upstream's
 checked-in output; it is expected to fail now that the tree is at 229, and
 re-running it means checking out the pre-bump commit first.
 
-This tier needs no credentials — `tests/tlcodec` deliberately compiles only
-`tgstream.cpp` plus the generated schema, not `libkg.pri`, which would pull in
-`apisecrets.h`. It is therefore the one target that could run on a hosted CI
-runner.
+The other three targets are the same shape and exist for the same reason —
+each covers logic whose failures are invisible from the outside.
 
-**Covers:** reader/writer symmetry, flag handling, `Vector<T>`, and the
-unknown-constructor desync.
-**Does not cover:** MTProto itself (auth key generation, DH, salts, containers,
-encryption), any server behaviour, and any constructor no vector exercises. It
-cannot tell you the layer is stale — only that what you recorded still parses.
+`tools\run-crypto.ps1` checks the MTProto key derivation. The two directions
+read different 32-byte fragments of the auth key, and the wrong fragment
+yields a key that is perfectly well formed and completely wrong. Expected
+values are computed from the specification with an independent implementation
+rather than by the code under test, which would agree with itself whether or
+not it agreed with Telegram.
+
+`tools\run-updates.ps1` checks the update sequence rules: for each update,
+whether it is applied, dropped as already seen, or treated as evidence that
+something in front of it never arrived. Two of those are easy to get subtly
+wrong. An update with `pts_count` 0 does not advance `pts`, so the
+in-sequence test has to come before the duplicate test or every read receipt
+is discarded; and a channel checked against the common `pts` makes ordinary
+channel messages look like duplicates.
+
+`tools\run-store.ps1` checks the local cache and the peer cache in front of
+it — including the path where the cache cannot open at all, which is what a
+device without a SQLite driver does for its whole life.
+
+None of these need credentials: they compile the file under test plus the
+generated schema, never `libkg.pri`, which would pull in `apisecrets.h`. They
+are therefore the targets that could run on a hosted CI runner.
+
+**Covers:** reader/writer symmetry, flag handling, `Vector<T>`, the
+unknown-constructor desync, key derivation per direction, the `pts` and `seq`
+verdicts, and the cache including its degradation path.
+**Does not cover:** the MTProto handshake, any server behaviour, any
+constructor no vector exercises, and whether a given device's Qt has a SQLite
+driver at all. It cannot tell you the layer is stale — only that what you
+recorded still parses.
 
 ## Tier 1 — test environment (Telegram test DCs)
 
@@ -144,7 +170,14 @@ you care about will, on the first expired-session run, destroy it.
 
 ```
 pwsh -File tools\run-e2e.ps1 -Tier prod -Scenario read
+pwsh -File tools\run-e2e.ps1 -Tier prod -Scenario updates
 ```
+
+The `updates` scenario is the only one that asserts the update pipeline
+against a real server: that the sequence acquires a position, and that
+sending a message advances it by exactly what the server said it should. The
+offline tier can check the arithmetic but not that Telegram's values have the
+shape the arithmetic assumes.
 
 `run-e2e.ps1` **copies** the session into `build-desktop/` before running. Do not
 work around that: `TgTransport::handleRpcError` calls `resetSession()` on any
@@ -171,14 +204,19 @@ Worth reading as a list of things a green run says nothing about:
   authoritative wherever it and the desktop build disagree.
 - **QML.** All 23 files, untouched by any tier.
 - **`src/`.** `DialogsModel`, `MessagesModel`, `FoldersModel`,
-  `AvatarDownloader`, `MessageUtil` — where most of SymboGram's own logic lives,
-  as opposed to libkg's. The tiers test the library, not the application. This
-  is the largest gap and the easiest to misread as coverage.
+  `AvatarDownloader` — where most of SymboGram's own logic lives, as opposed to
+  libkg's. The tiers test the library, not the application, with the one
+  exception of the peer cache in `MessageUtil`. This is the largest gap and the
+  easiest to misread as coverage.
 - **Long-running behaviour.** Ping and disconnect handling, salt rotation,
   `bad_server_salt` recovery, reconnection over hours.
-- **The update pipeline**, because there isn't one: no `pts`/`qts`/`seq`
-  tracking, no `getDifference`. Messages are missed when the connection blips,
-  and no tier here will tell you so.
+- **Gap recovery under a real gap.** The rules are checked offline and the
+  pipeline is checked live, but nothing here disconnects a client, has someone
+  send to it, and reconnects. That needs a second account, and it is what
+  `tools/e2e-oracle/` would be for.
+- **Whether SQLite exists on the device.** Qt for Symbian builds the driver
+  into QtSql rather than shipping it as a plugin, and no tier here can ask a
+  handset. The app logs which answer it got; read the log rather than assuming.
 
 ## Device smoke
 
@@ -191,6 +229,17 @@ After a layer change, before believing it:
 3. Open a chat with history, scroll up to trigger a second `getHistory`.
 4. Send a message; confirm it appears on another client.
 5. Open a photo.
+6. Check the log for the cache line. Either "Local cache open at ..." or "No
+   QSQLITE driver; running without the local cache" — both are working
+   outcomes, and which one appears decides whether the rest of this list means
+   anything.
+7. Background the app, have someone send a message, return to it. The message
+   must appear without a manual refresh: that is the difference the update
+   pipeline makes, and the failure it fixes was silent.
+8. Turn the network off for a minute and back on. The log should show a
+   growing delay between connection attempts rather than a stream of them, and
+   a reconnect once the bearer returns.
+9. Restart in flight mode. The chat list must appear from the cache.
 
 Anything that reads as garbled text or a short list is the desync described at
 the top of this file, not a rendering bug.

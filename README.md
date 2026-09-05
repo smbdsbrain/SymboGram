@@ -96,11 +96,14 @@ Reporting a vulnerability: [SECURITY.md](SECURITY.md).
 
 ## Testing
 
-Three tiers, cheapest first — offline TL codec tests, Telegram's test data
+Three tiers, cheapest first — offline unit tests, Telegram's test data
 centres, then production. Only the first needs nothing but a toolchain:
 
 ```
-pwsh -File tools\run-tlcodec.ps1         # tier 0: no network, no credentials
+pwsh -File tools\run-tlcodec.ps1         # tier 0: the TL codec
+pwsh -File tools\run-crypto.ps1          # tier 0: MTProto key derivation
+pwsh -File tools\run-updates.ps1         # tier 0: the update sequence rules
+pwsh -File tools\run-store.ps1           # tier 0: the local cache
 pwsh -File tools\run-e2e.ps1 -Tier test  # tier 1: Telegram's test data centres
 pwsh -File tools\run-e2e.ps1 -Tier prod  # tier 2: an existing production session
 ```
@@ -108,10 +111,18 @@ pwsh -File tools\run-e2e.ps1 -Tier prod  # tier 2: an existing production sessio
 What each tier covers, and the rather larger list of what none of them does,
 is in [docs/testing.md](docs/testing.md).
 
+## Staying in step with Telegram
+
+Telegram does not resend what it pushed while a client was away, so a client
+that only reacts to what arrives is silently wrong after every dropped
+connection. How SymboGram tracks its position in the update sequences, and what
+it does when it finds a gap, is in [docs/updates.md](docs/updates.md).
+
 ## Status
 
-Early. The build works and produces an installable package; the feature set is
-still upstream's, on API layer 229.
+Early. The build works and produces an installable package, on API layer 229.
+Messages survive a dropped connection, the chat list is cached locally, and
+the feature set is otherwise still upstream's.
 
 ## Licence
 
