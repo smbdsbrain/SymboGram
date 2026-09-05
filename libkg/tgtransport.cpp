@@ -376,7 +376,7 @@ void TgTransport::timerEvent(QTimerEvent *event)
     ping["ping_id"] = pingId++;
     ping["disconnect_delay"] = 75;
 
-    sendMTObject<&writeMTMethodPingDelayDisconnect>(ping);
+    sendMTServiceObject<&writeMTMethodPingDelayDisconnect>(ping);
 }
 
 qint64 TgTransport::sendPlainMessage(QByteArray data, qint64 oldMid)
@@ -1020,10 +1020,10 @@ TgLong TgTransport::sendMsgsAck()
     msgsAck["msg_ids"] = TgList(msgsToAck);
     msgsToAck.clear();
 
-    return sendMTMessage(tlSerialize<&writeMTMsgsAck>(msgsAck), 0, true);
+    return sendMTServiceObject<&writeMTMsgsAck>(msgsAck);
 }
 
-qint64 TgTransport::sendMTMessage(QByteArray originalData, qint64 oldMid, bool isMsgsAck)
+qint64 TgTransport::sendMTMessage(QByteArray originalData, qint64 oldMid, bool isService)
 {
     //TODO: lock
 
@@ -1033,7 +1033,7 @@ qint64 TgTransport::sendMTMessage(QByteArray originalData, qint64 oldMid, bool i
     if (originalData.isEmpty())
         return 0;
 
-    if (!isMsgsAck)
+    if (!isService)
         sendMsgsAck();
 
     QByteArray data = originalData;
@@ -1045,7 +1045,7 @@ qint64 TgTransport::sendMTMessage(QByteArray originalData, qint64 oldMid, bool i
     writeInt64(packet, sessionId);
     qint64 messageId = getNewMessageId();
     writeInt64(packet, messageId);
-    writeInt32(packet, generateSequence(!isMsgsAck));
+    writeInt32(packet, generateSequence(!isService));
     writeInt32(packet, data.length());
     writeRawBytes(packet, data);
     writeRawBytes(packet, randomBytes((0x7FFFFFF0 - data.length()) % 16 + (randomInt(14) + 2) * 16));
@@ -1061,7 +1061,7 @@ qint64 TgTransport::sendMTMessage(QByteArray originalData, qint64 oldMid, bool i
     writeRawBytes(cipherPacket, messageKey);
     writeRawBytes(cipherPacket, cipherText);
 
-    if (!isMsgsAck)
+    if (!isService)
         pendingMessages.insert(messageId, originalData);
 
     if (oldMid)
@@ -1084,8 +1084,16 @@ qint64 TgTransport::getNewMessageId()
 qint32 TgTransport::generateSequence(bool isContent)
 {
     //TODO: lock
-    qint32 result = isContent ? sequence++ * 2 + 1 : sequence++ * 2;
-    return result;
+
+    //Only content-related messages advance the counter. A service message
+    //takes the current value doubled and leaves it where it was, so acks and
+    //pings do not consume sequence numbers the server expects to be used by
+    //queries -- which it reports as bad_msg_notification 35.
+    if (isContent) {
+        return sequence++ * 2 + 1;
+    }
+
+    return sequence * 2;
 }
 
 void TgTransport::_bytesSent(qint64 count)
@@ -1212,7 +1220,7 @@ void TgTransport::handlePingMethod(QByteArray data, qint64 messageId)
     pong["msg_id"] = messageId;
     pong["ping_id"] = pingId.toLongLong();
 
-    sendMTObject<&writeMTPong>(pong);
+    sendMTServiceObject<&writeMTPong>(pong);
 }
 
 void TgTransport::handleMsgCopy(QByteArray data, qint64 messageId)

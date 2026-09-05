@@ -73,6 +73,7 @@ public:
 
     template <WRITE_METHOD W> qint64 sendPlainObject(QVariant i);
     template <WRITE_METHOD W> qint64 sendMTObject(QVariant i);
+    template <WRITE_METHOD W> qint64 sendMTServiceObject(QVariant i);
 
 signals:
     
@@ -102,7 +103,7 @@ public slots:
     void stop(bool sendMsgsAckBool = true);
 
     qint64 sendPlainMessage(QByteArray data, qint64 oldMid);
-    qint64 sendMTMessage(QByteArray data, qint64 oldMid, bool isMsgsAck);
+    qint64 sendMTMessage(QByteArray data, qint64 oldMid, bool isService);
     void authorize();
     void sendIntermediate(QByteArray data);
     QByteArray readIntermediate();
@@ -152,6 +153,17 @@ template <WRITE_METHOD W> qint64 TgTransport::sendMTObject(QVariant i)
 {
     kgDebug() << "Sending MT object:" << GETID(i.toMap());
     return sendMTMessage(tlSerialize<W>(i), 0, false);
+}
+
+// For the service messages of the protocol itself -- msgs_ack, ping, pong.
+//
+// They take an even sequence number, do not advance the content counter and
+// are not held for retry: nothing re-sends a ping, and a message the server
+// answers out of band never clears itself from the pending map.
+template <WRITE_METHOD W> qint64 TgTransport::sendMTServiceObject(QVariant i)
+{
+    kgDebug() << "Sending MT service object:" << GETID(i.toMap());
+    return sendMTMessage(tlSerialize<W>(i), 0, true);
 }
 
 #endif // TGTRANSPORT_H
