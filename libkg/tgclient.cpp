@@ -230,6 +230,11 @@ void TgClient::stop()
     _transport->stop();
 }
 
+void TgClient::retryNow()
+{
+    _transport->retryNow();
+}
+
 bool TgClient::isMain()
 {
     return _main;
@@ -253,6 +258,11 @@ bool TgClient::isAuthorized()
 void TgClient::handleSocketError(qint32 errorCode, QString errorMessage)
 {
     emit socketError(errorCode, errorMessage);
+}
+
+void TgClient::handleReconnecting(qint32 attempt, qint32 delayMs)
+{
+    emit reconnecting(attempt, delayMs);
 }
 
 void TgClient::handleDisconnected()

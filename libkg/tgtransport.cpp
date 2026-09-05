@@ -21,7 +21,12 @@ TgTransport::TgTransport(TgClient *parent, QString sessionName, qint32 dcId,
     : QObject(parent)
     , _client(parent)
     , _socket(0)
-    , _timer()
+    , _pingTimer()
+    , _retryTimer()
+    , _connectTimer()
+    , _retryAttempt(0)
+    , _autoReconnect(false)
+    , _notifiedDisconnect(false)
 
     //Was a hardcoded false with "change it for debugging or whatever". It is a
     //constructor argument now because the headless e2e harness needs both
@@ -294,13 +299,37 @@ void TgTransport::start()
 
     kgDebug() << "Starting transport, DC" << currentDc;
 
+    //Cleared here rather than only in _connected(): a connect that fails must
+    //be able to report the next failure too, or the backoff stops after one
+    //attempt.
+    _notifiedDisconnect = false;
+    _autoReconnect = true;
+
     _socket->connectToHost(currentHost, currentPort);
-    _timer.start(60000, this);
+
+    //QAbstractSocket has no connect timeout of its own. A SYN that is never
+    //answered -- the usual shape of a phone that has signal but no working
+    //bearer -- leaves the socket in ConnectingState indefinitely, and start()
+    //returns early for any state but Unconnected, so nothing else would ever
+    //retry.
+    _connectTimer.start(20000, this);
+    _pingTimer.start(60000, this);
 }
 
 void TgTransport::stop(bool sendMsgsAckBool)
 {
     saveSession();
+
+    //Unconditional, and above the state check: after a socket error the state
+    //is already Unconnected, so stopping the timers below the early return
+    //left the keepalive running and writing into a dead socket for the life of
+    //the process.
+    _pingTimer.stop();
+    _retryTimer.stop();
+    _connectTimer.stop();
+
+    //An explicit stop is a decision. start() sets this back.
+    _autoReconnect = false;
 
     if (_socket->state() == 0)
         return;
@@ -309,8 +338,6 @@ void TgTransport::stop(bool sendMsgsAckBool)
 
     if (sendMsgsAckBool)
         sendMsgsAck();
-
-    _timer.stop();
     _socket->flush();
     _socket->disconnectFromHost();
     if (_socket->state() == QTcpSocket::ClosingState)
@@ -321,7 +348,7 @@ void TgTransport::_error(QAbstractSocket::SocketError socketError)
 {
     kgDebug() << "Socket errored:" << socketError << "/" << _socket->errorString();
 
-    _disconnected();
+    notifyDisconnected();
 
     _client->handleSocketError(socketError, _socket->errorString());
 }
@@ -335,6 +362,8 @@ void TgTransport::_connected()
 
     _socket->write(packet.toByteArray());
 
+    _connectTimer.stop();
+
     _client->handleConnected();
 
     if (hasSession()) {
@@ -346,15 +375,83 @@ void TgTransport::_connected()
 
 void TgTransport::_disconnected()
 {
+    notifyDisconnected();
+}
+
+void TgTransport::notifyDisconnected()
+{
+    if (_notifiedDisconnect) {
+        return;
+    }
+    _notifiedDisconnect = true;
+
     kgDebug() << "Socket disconnected";
 
     initialized = false;
+    _handshaking = false;
+
+    _pingTimer.stop();
+    _connectTimer.stop();
+
+    scheduleReconnect();
 
     _client->handleDisconnected();
 }
 
+void TgTransport::scheduleReconnect()
+{
+    //Nothing to come back to without a session: the user is sent to the auth
+    //screen instead, which is a decision for the UI rather than the transport.
+    if (!_autoReconnect || !hasSession()) {
+        _retryAttempt = 0;
+        return;
+    }
+
+    //1s, 2s, 4s ... capped at a minute. Capped because a phone that spent an
+    //hour underground has to come back within a minute of regaining signal;
+    //jittered because every client of a data centre that just restarted would
+    //otherwise reconnect in lockstep and restart the outage.
+    qint32 step = _retryAttempt < 6 ? _retryAttempt : 6;
+    qint32 delay = 1000 << step;
+    if (delay > 60000) {
+        delay = 60000;
+    }
+    delay += randomInt(delay / 4);
+    ++_retryAttempt;
+
+    kgInfo() << "Reconnecting in" << delay << "ms, attempt" << _retryAttempt;
+
+    _client->handleReconnecting(_retryAttempt, delay);
+    _retryTimer.start(delay, this);
+}
+
+void TgTransport::retryNow()
+{
+    _retryTimer.stop();
+    _retryAttempt = 0;
+    start();
+}
+
 void TgTransport::timerEvent(QTimerEvent *event)
 {
+    if (event->timerId() == _retryTimer.timerId()) {
+        _retryTimer.stop();
+        start();
+        return;
+    }
+
+    if (event->timerId() == _connectTimer.timerId()) {
+        _connectTimer.stop();
+        kgWarning() << "Connect timed out";
+        _socket->abort();
+        notifyDisconnected();
+        return;
+    }
+
+    if (event->timerId() != _pingTimer.timerId()) {
+        return;
+    }
+
     kgDebug() << "Sending ping";
 
     if (pendingMessages.size() >= 40) {
@@ -631,7 +728,7 @@ void TgTransport::countBadPacket()
     kgCritical() << "Too many rejected packets, resetting the connection";
     _badPackets = 0;
     _socket->abort();
-    _disconnected();
+    notifyDisconnected();
 }
 
 void TgTransport::handleObject(QByteArray data, qint64 messageId)
@@ -1299,6 +1396,11 @@ void TgTransport::handleConfig(QByteArray data, qint64 messageId)
     }
 
     initialized = true;
+
+    //Here rather than in _connected(): a TCP connection that opens and then
+    //fails initConnection is not progress, and resetting the backoff on it
+    //would turn a rejecting data centre into a tight loop.
+    _retryAttempt = 0;
 
     _client->handleInitialized();
 

@@ -88,11 +88,18 @@ Item {
             if (!hasUserId) {
                 root.state = "AUTH";
                 authScreen.currentIndex = 0;
-            } else {
-                // TODO: show reconnecting
-                // TODO: timer!
-                telegramClient.start();
             }
+
+            // No start() here. The transport schedules its own retry with a
+            // capped backoff; calling start() from this handler reconnects at
+            // the speed of the event loop, because a refused connection emits
+            // disconnected again immediately.
+        }
+
+        onReconnecting: {
+            snackBar.text = delayMs < 2000
+                    ? "Reconnecting..."
+                    : "Reconnecting in " + Math.round(delayMs / 1000) + "s...";
         }
 
         onAuthSentCodeResponse: {
@@ -175,11 +182,12 @@ Item {
         }
 
         onSocketError: {
+            // Only worth reporting while the user is waiting on a login. Once
+            // there is a session, onReconnecting says the same thing with the
+            // delay attached, and reporting both means two messages per drop.
             if (state == "AUTH") {
                 setAuthProgress(false);
                 snackBar.text = "Socket error occured: " + errorMessage + " (" + errorCode + ")"
-            } else {
-                snackBar.text = "Reconnecting...";
             }
         }
 

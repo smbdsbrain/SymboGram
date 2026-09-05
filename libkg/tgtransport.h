@@ -16,7 +16,24 @@ class TgTransport : public QObject
 private:
     TgClient *_client;
     QTcpSocket *_socket;
-    QBasicTimer _timer;
+
+    // Three timers, told apart by timerId() in timerEvent().
+    QBasicTimer _pingTimer;      // keepalive, 60s
+    QBasicTimer _retryTimer;     // backoff before the next connect attempt
+    QBasicTimer _connectTimer;   // gives up on a connect that never completes
+
+    // Consecutive failed attempts, reset once a connection reaches the point
+    // of being useful. Drives the backoff delay.
+    qint32 _retryAttempt;
+
+    // False while a stop() is deliberate, so an explicit disconnect is not
+    // immediately undone by the retry timer.
+    bool _autoReconnect;
+
+    // QAbstractSocket reports one drop as error() and then disconnected(), and
+    // _error() calls the handler directly as well. Latched so the client hears
+    // it once and one reconnect is scheduled.
+    bool _notifiedDisconnect;
 
     bool testMode;
     bool mediaOnly;
@@ -102,12 +119,18 @@ public slots:
     void start();
     void stop(bool sendMsgsAckBool = true);
 
+    // Abandon the current backoff and try immediately. For when something
+    // outside the transport knows the network is back.
+    void retryNow();
+
     qint64 sendPlainMessage(QByteArray data, qint64 oldMid);
     qint64 sendMTMessage(QByteArray data, qint64 oldMid, bool isService);
     void authorize();
     void sendIntermediate(QByteArray data);
     QByteArray readIntermediate();
     void processMessage(QByteArray message);
+    void notifyDisconnected();
+    void scheduleReconnect();
     bool acceptMessageId(qint64 messageId);
     void countBadPacket();
     void initConnection();

@@ -67,6 +67,11 @@ public slots:
     void start();
     void stop();
 
+    // Give up on the current backoff and connect now. For the UI to call when
+    // it learns the network is back, rather than waiting out a delay chosen
+    // while it was not.
+    void retryNow();
+
     QDir cacheDirectory();
     QDir sessionDirectory();
     QString sessionName();
@@ -110,6 +115,7 @@ public slots:
     void handleDisconnected();
     void handleInitialized();
     void handleRpcError(qint32 errorCode, QString errorMessage, qint64 messageId);
+    void handleReconnecting(qint32 attempt, qint32 delayMs);
     void handleAuthorized(qint64 userId);
     void handleTFARequired();
 
@@ -143,6 +149,9 @@ signals:
     void connected(bool hasUserId);
     void socketError(qint32 errorCode, QString errorMessage);
     void disconnected(bool hasUserId);
+    // A reconnect is scheduled: attempt is 1-based and delayMs is the wait
+    // before it. The transport does the retrying; this is for showing it.
+    void reconnecting(qint32 attempt, qint32 delayMs);
     void initialized(bool hasUserId);
     void rpcError(qint32 errorCode, QString errorMessage, TgLongVariant messageId);
     void authorized(TgLongVariant userId);
