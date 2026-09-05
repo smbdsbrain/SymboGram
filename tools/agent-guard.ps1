@@ -91,7 +91,10 @@ if ($Kind -eq "Bash") {
            W = 'a forced or unverified push cannot be taken back - GitHub keeps serving the replaced commits' },
         @{ P = "(?i)$start$git" + 'add\b[^|;&]*\s(?:--force|-f)\b'
            W = 'forcing a path into the index overrides .gitignore, which is what keeps secrets/ out of the repository' },
-        @{ P = "(?i)$start$git" + 'config\b[^|;&]*core\.hooksPath'
+        # --get is a read: checking where hooksPath points is exactly what
+        # someone verifying the setup does, and blocking it makes the guard
+        # obstruct any audit of itself.
+        @{ P = "(?i)$start$git" + 'config\b(?![^|;&]*--get)[^|;&]*core\.hooksPath'
            W = 'changing core.hooksPath disarms the pre-commit and pre-push audits' },
         # `git -c core.hooksPath=... <anything>` runs with the hooks redirected.
         @{ P = '(?i)\bgit\s+-c\s+core\.hooksPath'
