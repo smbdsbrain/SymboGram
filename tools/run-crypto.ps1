@@ -72,8 +72,10 @@ if ([int] $plan.Matches[0].Groups[1].Value -eq 0) {
 Write-Host ""
 if ($failures -eq 0) {
     Write-Host "tier 0 green." -ForegroundColor Green
-    Write-Host "Covers key derivation per direction and the IGE block-length check."
-    Write-Host "Does NOT cover: the handshake, the transport, the network, or the device."
+    Write-Host "Covers key derivation per direction, the IGE block-length check,"
+    Write-Host "and the SRP password proof against a known answer."
+    Write-Host "Does NOT cover: the handshake, the transport, the network, the device,"
+    Write-Host "or whether the server accepts the proof -- only a real login shows that."
 } else {
     Write-Host "$failures failure(s)." -ForegroundColor Red
 }

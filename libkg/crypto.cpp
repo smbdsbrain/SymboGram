@@ -8,6 +8,8 @@
 #include <mbedtls/bignum.h>
 #include <mbedtls/sha256.h>
 #include <mbedtls/sha1.h>
+#include <mbedtls/sha512.h>
+#include <mbedtls/md.h>
 #include <mbedtls/entropy.h>
 #include <mbedtls/ctr_drbg.h>
 
@@ -335,4 +337,142 @@ QByteArray rsaPad(QByteArray data, DHKey key)
     } while (compareAsBigEndian(keyAesEncrypted, key.publicKey) != -1);
 
     return encryptRSA(keyAesEncrypted, key.publicKey, key.exponent);
+}
+
+Pbkdf2Sink::~Pbkdf2Sink()
+{
+}
+
+QByteArray hashSHA512(QByteArray dataToHash)
+{
+    QByteArray hash;
+    hash.resize(64);
+
+    mbedtls_sha512_context ctx;
+    mbedtls_sha512_init(&ctx);
+    mbedtls_sha512_starts(&ctx, false);
+    mbedtls_sha512_update(&ctx, (const unsigned char*) dataToHash.constData(), dataToHash.size());
+    mbedtls_sha512_finish(&ctx, (unsigned char*) hash.data());
+    mbedtls_sha512_free(&ctx);
+
+    return hash;
+}
+
+QByteArray hmacSHA512(QByteArray key, QByteArray data)
+{
+    const mbedtls_md_info_t *info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA512);
+    if (info == 0) {
+        return QByteArray();
+    }
+
+    QByteArray mac;
+    mac.resize(64);
+
+    if (mbedtls_md_hmac(info,
+                        (const unsigned char*) key.constData(), key.size(),
+                        (const unsigned char*) data.constData(), data.size(),
+                        (unsigned char*) mac.data()) != 0) {
+        return QByteArray();
+    }
+
+    return mac;
+}
+
+QByteArray pbkdf2HmacSHA512(QByteArray password, QByteArray salt,
+                            qint32 iterations, qint32 outputLength,
+                            Pbkdf2Sink *sink)
+{
+    const qint32 HASH_LENGTH = 64;
+    const qint32 REPORT_EVERY = 5000;
+
+    const mbedtls_md_info_t *info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA512);
+    if (info == 0 || iterations <= 0 || outputLength <= 0) {
+        return QByteArray();
+    }
+
+    mbedtls_md_context_t ctx;
+    mbedtls_md_init(&ctx);
+
+    //The 1 asks for an HMAC context. It is what lets the key be scheduled once
+    //by hmac_starts and reused by hmac_reset: at 100000 iterations, expanding
+    //ipad and opad per iteration is the difference between a wait and a hang.
+    if (mbedtls_md_setup(&ctx, info, 1) != 0) {
+        mbedtls_md_free(&ctx);
+        return QByteArray();
+    }
+
+    const qint32 blocks = (outputLength + HASH_LENGTH - 1) / HASH_LENGTH;
+    const qint32 totalSteps = blocks * iterations;
+
+    QByteArray out;
+    out.resize(outputLength);
+
+    unsigned char u[64];
+    unsigned char t[64];
+    unsigned char counter[4];
+
+    qint32 stepsDone = 0;
+    bool failed = false;
+
+    for (qint32 block = 1; block <= blocks && !failed; ++block) {
+        //The block index is appended to the salt big-endian, per RFC 2898.
+        counter[0] = (unsigned char) ((block >> 24) & 0xFF);
+        counter[1] = (unsigned char) ((block >> 16) & 0xFF);
+        counter[2] = (unsigned char) ((block >> 8) & 0xFF);
+        counter[3] = (unsigned char) (block & 0xFF);
+
+        if (mbedtls_md_hmac_starts(&ctx, (const unsigned char*) password.constData(), password.size()) != 0
+                || mbedtls_md_hmac_update(&ctx, (const unsigned char*) salt.constData(), salt.size()) != 0
+                || mbedtls_md_hmac_update(&ctx, counter, 4) != 0
+                || mbedtls_md_hmac_finish(&ctx, u) != 0) {
+            failed = true;
+            break;
+        }
+
+        memcpy(t, u, HASH_LENGTH);
+        ++stepsDone;
+
+        for (qint32 i = 1; i < iterations; ++i) {
+            if (mbedtls_md_hmac_reset(&ctx) != 0
+                    || mbedtls_md_hmac_update(&ctx, u, HASH_LENGTH) != 0
+                    || mbedtls_md_hmac_finish(&ctx, u) != 0) {
+                failed = true;
+                break;
+            }
+
+            for (qint32 j = 0; j < HASH_LENGTH; ++j) {
+                t[j] ^= u[j];
+            }
+
+            ++stepsDone;
+
+            //Reporting every iteration would post one event per HMAC and cost
+            //more than the HMAC does.
+            if (sink != 0 && (stepsDone % REPORT_EVERY) == 0
+                    && !sink->step(stepsDone, totalSteps)) {
+                failed = true;
+                break;
+            }
+        }
+
+        if (failed) {
+            break;
+        }
+
+        const qint32 offset = (block - 1) * HASH_LENGTH;
+        const qint32 take = qMin(HASH_LENGTH, outputLength - offset);
+        memcpy(out.data() + offset, t, take);
+    }
+
+    //u and t carry the derived key, which is the password in another form.
+    memset(u, 0, sizeof(u));
+    memset(t, 0, sizeof(t));
+    mbedtls_md_free(&ctx);
+
+    if (failed) {
+        memset(out.data(), 0, out.size());
+        return QByteArray();
+    }
+
+    return out;
 }

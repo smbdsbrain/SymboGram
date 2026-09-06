@@ -2,6 +2,7 @@
 #define TGTRANSPORT_H
 
 #include <QObject>
+#include <QSet>
 #include <QTcpSocket>
 #include <QBasicTimer>
 #include <QList>
@@ -61,6 +62,11 @@ private:
     QHash<qint64, QByteArray> pendingMessages;
     QHash<qint64, QByteArray> migrationMessages;
     QHash<qint64, QByteArray> floodMessages;
+    // Requests that must not be replayed after a FLOOD_WAIT. Replay is right
+    // for a request whose meaning does not expire; an SRP proof is bound to
+    // one srp_id, so resending it after the wait fails and spends another
+    // attempt against the same limit.
+    QSet<qint64> noFloodReplay;
 
     QString _sessionName;
 
@@ -124,6 +130,10 @@ public slots:
     void retryNow();
 
     qint64 sendPlainMessage(QByteArray data, qint64 oldMid);
+    // Exclude a request from the FLOOD_WAIT replay above. For anything whose
+    // meaning expires, replaying it after the wait is worse than dropping it.
+    void doNotReplay(qint64 messageId);
+
     qint64 sendMTMessage(QByteArray data, qint64 oldMid, bool isService);
     void authorize();
     void sendIntermediate(QByteArray data);

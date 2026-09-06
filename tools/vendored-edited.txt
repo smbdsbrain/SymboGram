@@ -89,3 +89,33 @@ libkg/tgupdates.cpp
 libkg/tgc_updates.cpp
 libkg/tgstore.h
 libkg/tgstore.cpp
+
+# --- libkg: the SRP password proof ---
+# crypto.{h,cpp}  SHA-512, HMAC-SHA512 and PBKDF2-HMAC-SHA512. The vendored
+#                 mbedtls has MBEDTLS_PKCS5_C disabled in its pinned config,
+#                 so mbedtls_pkcs5_pbkdf2_hmac_ext compiles to nothing; the
+#                 derivation is written here over mbedtls_md_hmac_* rather
+#                 than by editing the pin, which would put a local change
+#                 inside a tree whose whole value is being byte-identical.
+#                 Also Pbkdf2Sink, so a derivation the user has abandoned
+#                 stops instead of holding the password to completion.
+#
+# New files, first-party:
+# srp.{h,cpp}     Telegram's SRP-6a proof for auth.checkPassword. Separate
+#                 from crypto.cpp because it carries a protocol failure
+#                 reason rather than a primitive, and because tests/crypto
+#                 links it without libkg.pri and therefore without any
+#                 credentials.
+# tgsrpworker.{h,cpp}  runs the proof off the GUI thread. The derivation is
+#                 seconds on the target hardware, and the modular
+#                 exponentiations are atomic inside mbedtls, so there is no
+#                 chunking that keeps the interface responsive.
+# tgc_password.cpp  the flow -- account.getPassword, the proof, then
+#                 auth.checkPassword -- following the tgc_<area>.cpp
+#                 convention. Driven from the client rather than from QML so
+#                 that every attempt uses freshly fetched parameters.
+libkg/srp.h
+libkg/srp.cpp
+libkg/tgsrpworker.h
+libkg/tgsrpworker.cpp
+libkg/tgc_password.cpp

@@ -92,26 +92,25 @@ paths in that file.
 `mbedtls`, `zlib`, `qt-json`, `pigler` and `tl-generator` are unedited: every
 remaining file is byte-identical to its pinned commit.
 
-**`libkg/` is not.** It is a fork rather than a pinned dependency, so the rename
-to SymboGram lands in it by definition. Five files differ:
+**`libkg/` is not.** It is a fork rather than a pinned dependency, so
+first-party work lands in it by definition: the rename to SymboGram, the
+Symbian build fixes, the inbound MTProto verification, the reconnect policy,
+the update pipeline, the local cache and the SRP password proof.
 
-| File | Change |
-|---|---|
-| `apisecrets.h.empty` | `KUTEGRAM_API_*` → `SYMBOGRAM_API_*` |
-| `tgc_auth.cpp` | the same two macros at the call site |
-| `tgtransport.cpp` | `SYMBOGRAM_API_ID` in `initConnection` |
-| `tgclient.cpp` | QML module name registered for `TgClient`/`TgStream`/`TgPacket` |
-| `crypto.cpp` | CTR-DRBG personalisation string |
+`tools/vendored-edited.txt` is the list, and it is the authoritative one --
+every edited path and every first-party file added to the fork, each with the
+reason it exists. Enumerating them here as well would give the same facts two
+homes and one of them would go stale.
 
-`libkg/` also differs from upstream in line endings throughout — it was
+`libkg/` also differs from upstream in line endings throughout, having been
 renormalised to CRLF during the rename. That is not an edit and the verifier
 reports it separately.
 
-The five are listed with their reasons in `tools/vendored-edited.txt`, which
-`verify-vendored.py --online` reads: an edit that is not recorded there fails
-the check, and a recorded path that no longer differs fails it too. That is
-what turns the GPL-3.0 "state what you changed" obligation from prose into
-something that cannot quietly go stale.
+`verify-vendored.py --online` reads that file: an edit not recorded there fails
+the check, a recorded path that no longer differs fails it too, and a file
+upstream does not have must be declared or it fails as undeclared. That is what
+turns the GPL-3.0 "state what you changed" obligation from prose into something
+that cannot quietly go stale.
 
 ## Verification
 

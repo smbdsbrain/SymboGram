@@ -49,3 +49,24 @@ TgLongVariant TgClient::authSignUp(QString phoneNumber, QString phoneCodeHash, Q
 
     return sendObject<&writeTLMethodAuthSignUp>(method);
 }
+
+TgLongVariant TgClient::accountGetPassword()
+{
+    TGOBJECT(TLType::AccountGetPasswordMethod, method);
+
+    return sendObject<&writeTLMethodAccountGetPassword>(method);
+}
+
+TgLongVariant TgClient::authCheckPassword(TgLongVariant srpId, QByteArray a, QByteArray m1)
+{
+    TGOBJECT(TLType::AuthCheckPasswordMethod, method);
+
+    TGOBJECT(TLType::InputCheckPasswordSRP, password);
+    password["srp_id"] = srpId;
+    password["A"] = a;
+    password["M1"] = m1;
+
+    method["password"] = password;
+
+    return sendObject<&writeTLMethodAuthCheckPassword>(method);
+}

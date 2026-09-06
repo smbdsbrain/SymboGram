@@ -32,6 +32,7 @@ public:
 //TODO: mutexes for migrations / file operations
 
 class TgUpdatesManager;
+class TgSrpWorker;
 
 class TgClient : public QObject
 {
@@ -64,6 +65,15 @@ private:
     // file parts for the same account and have nothing of their own to
     // cache. Only the main client opens it.
     TgStore _store;
+
+    // Two-step verification. The password is held only between the moment QML
+    // hands it over and the moment the server answers the proof, because
+    // recovering from SRP_ID_INVALID means computing a second proof from it.
+    TgSrpWorker *_srpWorker;
+    QByteArray _pendingPassword;
+    qint64 _passwordRequestId;
+    qint64 _checkPasswordRequestId;
+    bool _srpRetried;
 
 public:
     explicit TgClient(QObject *parent = 0, qint32 dcId = 0, QString sessionName = "",
@@ -145,6 +155,19 @@ public slots:
     TgLongVariant helpGetCountriesList(qint32 hash = 0, QString langCode = "");
     TgLongVariant authSendCode(QString phoneNumber);
     TgLongVariant authSignIn(QString phoneNumber, QString phoneCodeHash, QString phoneCode);
+    TgLongVariant accountGetPassword();
+    TgLongVariant authCheckPassword(TgLongVariant srpId, QByteArray a, QByteArray m1);
+    // The whole two-step flow: fetches parameters, proves off the UI thread,
+    // and sends auth.checkPassword. QML passes the password and nothing else.
+    void authCheckPasswordSRP(QString password);
+    void cancelPasswordCheck();
+    void handleAccountPassword(TgObject password, qint64 messageId);
+    void handleSrpProgress(qint32 percent);
+    void handleSrpProved(qint64 srpId, QByteArray a, QByteArray m1);
+    void handleSrpFailed(QString reason);
+    // True when the error belonged to a password check and has been dealt
+    // with here, so handleRpcError should not also report it.
+    bool handlePasswordRpcError(QString errorMessage, qint64 messageId);
     TgLongVariant messagesGetDialogs(qint32 offsetDate = 0, qint32 offsetId = 0, TgObject offsetPeer = TgObject(), qint32 limit = 20, qint32 folderId = 0, bool excludePinned = false, TgLongVariant hash = 0);
     TgLongVariant messagesGetDialogsWithOffsets(TgObject offsets = TgObject(), qint32 limit = 20, qint32 folderId = 0, bool excludePinned = false, TgLongVariant hash = 0);
     TgLongVariant authSignUp(QString phoneNumber, QString phoneCodeHash, QString firstName, QString lastName = "");
@@ -186,6 +209,15 @@ signals:
     void rpcError(qint32 errorCode, QString errorMessage, TgLongVariant messageId);
     void authorized(TgLongVariant userId);
     void tfaRequired();
+
+    void accountPasswordResponse(TgObject data, TgLongVariant messageId);
+    // 0..100 through the key derivation. The wait is long enough on the device
+    // that an indeterminate spinner reads as a hang.
+    void passwordCheckProgress(qint32 percent);
+    // A failure the server never saw: an unsupported derivation, parameters
+    // refused, or a cancelled computation. Separate from rpcError so the UI
+    // does not have to invent an error code for it.
+    void passwordCheckFailed(QString reason);
 
     void fileDownloading(TgLongVariant fileId, TgLongVariant processedLength, TgLongVariant totalLength, qint32 progressPercentage);
     void fileDownloaded(TgLongVariant fileId, QString filePath);

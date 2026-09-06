@@ -29,11 +29,13 @@ SOURCES += \
     $$PWD/main.cpp \
     $$TLCODEC/tlcase.cpp \
     $$LIBKG/crypto.cpp \
+    $$LIBKG/srp.cpp \
     $$LIBKG/tgstream.cpp \
     $$LIBKG/mtschema.cpp
 
 HEADERS += \
     $$TLCODEC/tlcase.h \
     $$LIBKG/crypto.h \
+    $$LIBKG/srp.h \
     $$LIBKG/tgstream.h \
     $$LIBKG/mtschema.h

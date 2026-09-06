@@ -68,6 +68,11 @@ TgClient::TgClient(QObject *parent, qint32 dcId, QString sessionName, bool useTe
     , _testDc(useTestDc)
     , _updates(0)
     , _store()
+    , _srpWorker(0)
+    , _pendingPassword()
+    , _passwordRequestId(0)
+    , _checkPasswordRequestId(0)
+    , _srpRetried(false)
 {
     _main = dcId == 0;
     clientSessionName = sessionName;
@@ -477,6 +482,10 @@ void TgClient::handleRpcError(qint32 errorCode, QString errorMessage, qint64 mes
         return;
     }
 
+    if (handlePasswordRpcError(errorMessage, messageId)) {
+        return;
+    }
+
     emit rpcError(errorCode, errorMessage, messageId);
 }
 
@@ -514,6 +523,15 @@ void TgClient::handleObject(QByteArray data, qint64 messageId)
     case TLType::AuthSentCodePaymentRequired:
         emit authSentCodeResponse(tlDeserialize<&readTLAuthSentCode>(data).toMap(), messageId);
         break;
+    case TLType::AccountPassword:
+    {
+        TgObject password = tlDeserialize<&readTLAccountPassword>(data).toMap();
+        // Deserialised once and served to both consumers: the flow, which
+        // needs srp_B and srp_id, and the interface, which needs the hint.
+        handleAccountPassword(password, messageId);
+        emit accountPasswordResponse(password, messageId);
+        break;
+    }
     case TLType::AuthAuthorization:
     case TLType::AuthAuthorizationSignUpRequired:
         emit authAuthorizationResponse(tlDeserialize<&readTLAuthAuthorization>(data).toMap(), messageId);

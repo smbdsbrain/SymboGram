@@ -84,6 +84,20 @@ bool tlDecodeStrict(const QByteArray &in, READ_METHOD read, void *cb,
 // "offset 0x1a4: expected 37 30 66 c4, got 00 00 00 00"
 QString tlFirstDifference(const QByteArray &a, const QByteArray &b);
 
+// Asserts the bytes a method writer produces.
+//
+// Method writers cannot go through TlCase, which pairs a reader with a writer
+// for one constructor: a method's generated reader reads the RETURN type, so
+// there is nothing to pair the request writer with. Request shapes are
+// therefore compared against hex read off the schema.
+//
+// Worth having separately from the constructor cases because the generated
+// writers switch on obj["_"] with no default and recompute flags from which
+// keys are present -- so a misspelled or missing key does not fail, it writes
+// a shorter request that the server parses as something else.
+void tlExpectBytes(TlReport &r, const char *name, WRITE_METHOD write, void *cb,
+                   const QVariant &obj, const char *hex);
+
 void tlRunCase(TlReport &r, const TlCase &c);
 
 #endif // TLCASE_H

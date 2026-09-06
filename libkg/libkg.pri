@@ -10,6 +10,8 @@ HEADERS += \
     $$PWD/mtschema.h \
     $$PWD/tgstream.h \
     $$PWD/crypto.h \
+    $$PWD/srp.h \
+    $$PWD/tgsrpworker.h \
     $$PWD/tgclient.h \
     $$PWD/tgtransport.h \
     $$PWD/tgstore.h \
@@ -24,6 +26,9 @@ SOURCES += \
     $$PWD/mtschema.cpp \
     $$PWD/tgstream.cpp \
     $$PWD/crypto.cpp \
+    $$PWD/srp.cpp \
+    $$PWD/tgsrpworker.cpp \
+    $$PWD/tgc_password.cpp \
     $$PWD/tgclient.cpp \
     $$PWD/tgtransport.cpp \
     $$PWD/tgstore.cpp \

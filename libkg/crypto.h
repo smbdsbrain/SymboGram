@@ -31,6 +31,27 @@ QByteArray hashSHA1(QByteArray dataToHash);
 QByteArray calcMessageKey(QByteArray authKey, QByteArray data, bool client);
 QByteArray calcEncryptionKey(QByteArray sharedKey, QByteArray msgKey, QByteArray &iv, bool client);
 QByteArray rsaPad(QByteArray data, DHKey key);
+
+// Progress and cancellation for a derivation slow enough that the interface
+// has to account for it. step() returns false to abandon the run: the SRP
+// parameters it feeds expire server-side, so a computation the user has walked
+// away from is worth nothing and must not hold the password any longer.
+class Pbkdf2Sink
+{
+public:
+    virtual ~Pbkdf2Sink();
+    virtual bool step(qint32 done, qint32 total) = 0;
+};
+
+QByteArray hashSHA512(QByteArray dataToHash);
+QByteArray hmacSHA512(QByteArray key, QByteArray data);
+// MBEDTLS_PKCS5_C is off in the pinned vendored configuration, so
+// mbedtls_pkcs5_pbkdf2_hmac_ext compiles to nothing, and tools/verify-vendored.py
+// checks that tree byte for byte -- so the loop lives here rather than being
+// bought with a one-line call. Returns an empty array if the sink cancels.
+QByteArray pbkdf2HmacSHA512(QByteArray password, QByteArray salt,
+                            qint32 iterations, qint32 outputLength,
+                            Pbkdf2Sink *sink = 0);
 qint64 randomLong();
 
 #endif // CRYPTO_H

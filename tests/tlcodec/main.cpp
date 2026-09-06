@@ -51,6 +51,26 @@
     "efbeadde" "05000000" "03000000" \
     "7105a228" "09000000" "04000000"
 
+
+// account.password#957b50fb, flags = has_password | hint, carrying the SHA256/
+// PBKDF2 KDF. Truncated p and srp_B: this asserts the wire shape and that
+// srp_B/srp_id land under the keys the SRP code reads, not the arithmetic.
+#define HEX_ACCOUNT_PASSWORD \
+    "fb507b950c0000004a2d913a1000112233445566778899aabbccddeeff000000" \
+    "10102132435465768798a9bacbdcedfe0f0000000300000008c71caeb9c6b1c9" \
+    "04000000081f248632dc6175a50000000807060504030201076d792068696e74" \
+    "96b05ad437854a0000000000"
+
+// inputCheckPasswordSRP#d27ff082 srp_id:long A:bytes M1:bytes. No flags word,
+// so exact byte equality is the right assertion -- including the padding of
+// the two bytes fields, which is invisible at full width.
+#define HEX_INPUT_CHECK_SRP \
+    "82f07fd2080706050403020104aabbccdd0000000411223344000000"
+
+// auth.checkPassword#d18b4d16 password:InputCheckPasswordSRP.
+#define HEX_AUTH_CHECK_PASSWORD \
+    "164d8bd182f07fd2080706050403020104aabbccdd0000000411223344000000"
+
 static const TlCase kCases[] = {
     // Fixed-shape constructors with no flags word, so exact byte equality is
     // the right assertion; anything weaker would be hiding something.
@@ -60,6 +80,13 @@ static const TlCase kCases[] = {
     { "MessageEntity/bold",      &readTLMessageEntity, &writeTLMessageEntity, 0, 0, HEX_ENTITY_BOLD,     TlExact },
     { "Vector<MessageEntity>",   &readVector,          &writeVector,
       (void*) &readTLMessageEntity, (void*) &writeTLMessageEntity, HEX_ENTITY_VECTOR, TlExact },
+    { "InputCheckPasswordSRP",   &readTLInputCheckPasswordSRP, &writeTLInputCheckPasswordSRP,
+      0, 0, HEX_INPUT_CHECK_SRP, TlExact },
+
+    // Structural: account.password carries a flags word, and the writer
+    // recomputes it from the keys present.
+    { "account.password",        &readTLAccountPassword, &writeTLAccountPassword,
+      0, 0, HEX_ACCOUNT_PASSWORD, TlStructural },
 };
 
 // Cases whose expected outcome is a FAILURE. A suite that asserts nothing
@@ -116,6 +143,48 @@ int main(int argc, char *argv[])
             r.fail(c.name, QString("failed for the wrong reason: %1").arg(why));
         else
             r.ok(c.name, why);
+    }
+
+    // Request shapes, which TlCase cannot express -- see tlExpectBytes.
+    {
+        TgObject srp;
+        srp["_"] = TLType::InputCheckPasswordSRP;
+        srp["srp_id"] = Q_INT64_C(0x0102030405060708);
+        srp["A"] = QByteArray::fromHex("aabbccdd");
+        srp["M1"] = QByteArray::fromHex("11223344");
+
+        TgObject method;
+        method["_"] = TLType::AuthCheckPasswordMethod;
+        method["password"] = srp;
+
+        tlExpectBytes(r, "auth.checkPassword/request",
+                      &writeTLMethodAuthCheckPassword, 0, method,
+                      HEX_AUTH_CHECK_PASSWORD);
+
+        // Deliberate-failure control.
+        //
+        // The generated writer reads obj["password"] and switches on the
+        // inner object's "_" with no default case. Under any other key it
+        // finds an empty map, matches nothing, and writes NOTHING after the
+        // method id -- a four-byte request that is not rejected as malformed
+        // so much as read as a different message. That silent truncation is
+        // the failure this whole assertion exists to catch, so it is worth
+        // proving the assertion can see it.
+        TgObject misnamed;
+        misnamed["_"] = TLType::AuthCheckPasswordMethod;
+        misnamed["pwd"] = srp;
+
+        TgPacket packet;
+        writeTLMethodAuthCheckPassword(packet, misnamed, 0);
+        const QByteArray truncated = packet.toByteArray();
+
+        if (truncated.size() == 4) {
+            r.ok("control/a misnamed field truncates the request");
+        } else {
+            r.fail("control/a misnamed field truncates the request",
+                   QString("expected 4 bytes from an unmatched inner object, got %1")
+                       .arg(truncated.size()));
+        }
     }
 
     return r.finish();

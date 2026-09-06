@@ -152,3 +152,24 @@ void tlRunCase(TlReport &r, const TlCase &c)
     }
     r.ok(c.name, out == in ? "structural (bytes matched too)" : "structural");
 }
+
+void tlExpectBytes(TlReport &r, const char *name, WRITE_METHOD write, void *cb,
+                   const QVariant &obj, const char *hex)
+{
+    const QByteArray want = QByteArray::fromHex(QByteArray(hex));
+
+    TgPacket packet;
+    (*write)(packet, obj, cb);
+    const QByteArray got = packet.toByteArray();
+
+    if (got == want) {
+        r.ok(QString::fromLatin1(name));
+        return;
+    }
+
+    r.fail(QString::fromLatin1(name),
+           QString("%1 (expected %2 bytes, got %3)")
+               .arg(tlFirstDifference(want, got))
+               .arg(want.size())
+               .arg(got.size()));
+}

@@ -60,6 +60,7 @@ TgTransport::TgTransport(TgClient *parent, QString sessionName, qint32 dcId,
     , pendingMessages()
     , migrationMessages()
     , floodMessages()
+    , noFloodReplay()
 
     , _sessionName(sessionName)
 
@@ -108,6 +109,7 @@ void TgTransport::resetSession()
     saveSession(true);
 
     pendingMessages.clear();
+    noFloodReplay.clear();
     migrationMessages.clear();
     msgsToAck.clear();
 
@@ -457,6 +459,7 @@ void TgTransport::timerEvent(QTimerEvent *event)
     if (pendingMessages.size() >= 40) {
         kgDebug() << "TOO MANY pending messages," << pendingMessages.size() << "items, clearing";
         pendingMessages.clear();
+        noFloodReplay.clear();
     }
 
     QList<qint64> keys = floodMessages.keys();
@@ -1244,6 +1247,13 @@ void TgTransport::handleGzipPacked(QByteArray data, qint64 messageId)
     handleObject(data, messageId);
 }
 
+void TgTransport::doNotReplay(qint64 messageId)
+{
+    if (messageId != 0) {
+        noFloodReplay.insert(messageId);
+    }
+}
+
 void TgTransport::handleRpcError(QByteArray data, qint64 messageId)
 {
     TgPacket packet(data);
@@ -1284,7 +1294,12 @@ void TgTransport::handleRpcError(QByteArray data, qint64 messageId)
     }
 
     if (errorMessage.contains("FLOOD_WAIT_")) {
-        floodMessages.insert(messageId, pendingMessages.take(messageId));
+        if (noFloodReplay.remove(messageId)) {
+            pendingMessages.remove(messageId);
+        } else {
+            floodMessages.insert(messageId, pendingMessages.take(messageId));
+        }
+
         _client->handleRpcError(errorCode, errorMessage, messageId);
         return;
     }
