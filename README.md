@@ -122,7 +122,8 @@ it does when it finds a gap, is in [docs/updates.md](docs/updates.md).
 
 Early. The build works and produces an installable package, on API layer 229.
 Messages survive a dropped connection, the chat list is cached locally, and
-the feature set is otherwise still upstream's.
+accounts with a cloud password can sign in. The feature set is otherwise still
+upstream's: there is no message editing, deletion, forwarding or search yet.
 
 ## Licence
 

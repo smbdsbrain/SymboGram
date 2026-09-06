@@ -222,6 +222,27 @@ times over and the audit hunts for its values, but it is still a live account
 credential inside the working tree: do not archive the project directory, sync
 it to cloud storage, or share your screen with the file tree open.
 
+An account with a cloud password signs in normally; see [auth.md](auth.md) for
+what happens between the code and the authorization.
+
+### A second account, for the gap scenario
+
+`run-e2e.ps1 -Tier prod -Scenario gap` needs one, because two sessions of a
+single account are the same authorization and Telegram simply pushes the
+update to whichever connection appears next -- no difference is involved and
+the test asserts nothing.
+
+Sign the second account in with the session store pointed at `secrets/session-b`:
+
+```powershell
+$env:SYMBOGRAM_SESSION_DIR = "$PWD\secrets\session-b"
+.\build-desktop\release\SymboGram.exe
+```
+
+Then have the two accounts exchange at least one message, so the sender holds
+an `access_hash` for the client, and run the scenario. The runner copies both
+sessions into `build-desktop/` before using them.
+
 ## Before pushing
 
 The hooks do this automatically. To run it by hand:

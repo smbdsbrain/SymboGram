@@ -161,6 +161,37 @@ know the limits of.
   is fine, or in a *commit you push from another clone with no hooks*, which is
   not.
 
+## The cloud password at runtime
+
+The rest of this document is about keeping secrets out of the public
+repository. Two-step verification introduces a secret of a different kind: one
+that exists only while the application runs.
+
+What holds:
+
+- The password is converted to UTF-8 as it crosses out of the interface and is
+  held by `TgClient` only until the server answers the proof. It is needed for
+  that long because recovering from `SRP_ID_INVALID` means computing a second
+  proof from it.
+- It is never written to disk. `QSettings` stores the auth key, never the
+  password, and the local cache has no column for one.
+- It is never logged. The SRP code reports failures as reasons -- which
+  parameter was refused, which stage failed -- and none of them carry the
+  password or the derived secrets.
+- The derivation stages, the shared secret and the private exponent are
+  overwritten when the computation ends, and the worker clears its copy of the
+  password before it reports.
+
+What does not hold, and should not be claimed:
+
+- **Erasure is best effort.** The `QString` the password arrives in is
+  implicitly shared and reference-counted by the QML engine, so copies may
+  outlive the one that is cleared.
+- **Nothing is pinned in memory.** Symbian offers no page locking, so the
+  operating system may page the process out at any point.
+- **`srp_B` and `srp_id` are session state.** They are not secret in the way
+  the password is, but they belong in no log either.
+
 ## Build artifacts
 
 **SymboGram publishes no prebuilt binaries.** `dist/`, `build-desktop*/` and
