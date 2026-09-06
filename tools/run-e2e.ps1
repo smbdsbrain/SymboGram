@@ -57,6 +57,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 . "$PSScriptRoot\_env.ps1"
+. "$PSScriptRoot\build-freshness.ps1"
 
 $QtDir    = if ($env:QTDIR_487) { $env:QTDIR_487 } else { 'C:\Qt\4.8.7' }
 $MinGWDir = if ($env:MINGW)     { $env:MINGW }     else { 'C:\mingw482\mingw32' }
@@ -73,7 +74,8 @@ if ($LASTEXITCODE) { throw "write-apisecrets failed" }
 $pro   = Join-Path $RepoRoot 'tests\e2e\e2e.pro'
 $build = Join-Path $RepoRoot 'build-desktop\e2e'
 if ($Clean -and (Test-Path $build)) { Remove-Item -Recurse -Force $build }
-New-Item -ItemType Directory -Force -Path $build | Out-Null
+# Also discards the tree when a header layout has moved under it.
+Assert-FreshBuild -BuildDir $build -SourceDirs @((Join-Path $RepoRoot 'libkg'), (Join-Path $RepoRoot 'tests/e2e'))
 
 Push-Location $build
 try {
@@ -149,9 +151,11 @@ function Invoke-Scenario {
 # second session of the same account sends a message while it is gone, and the
 # client starts again and has to recover what it missed.
 #
-# Two session directories rather than two accounts: they are separate MTProto
-# sessions with separate update states, which is all the test needs, and it
-# keeps the suite runnable by anyone with one login.
+# It needs a SECOND ACCOUNT, and not merely a second session directory. Two
+# sessions of one account are the same authorization: Telegram queues that
+# authorization's updates and pushes them to whichever connection appears
+# next, so the message arrives with no difference involved and the check
+# asserts nothing.
 function Invoke-GapScenario {
     # A session file is not a login. An abandoned sign-in leaves an auth key
     # behind with no user id -- which is exactly what happens when the second

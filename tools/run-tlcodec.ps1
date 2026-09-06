@@ -24,6 +24,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 . "$PSScriptRoot\_env.ps1"
+. "$PSScriptRoot\build-freshness.ps1"
 
 $QtDir    = if ($env:QTDIR_487) { $env:QTDIR_487 } else { 'C:\Qt\4.8.7' }
 $MinGWDir = if ($env:MINGW)     { $env:MINGW }     else { 'C:\mingw482\mingw32' }
@@ -40,7 +41,8 @@ $pro   = Join-Path $RepoRoot 'tests\tlcodec\tlcodec.pro'
 $build = Join-Path $RepoRoot 'build-desktop\tlcodec'
 
 if ($Clean -and (Test-Path $build)) { Remove-Item -Recurse -Force $build }
-New-Item -ItemType Directory -Force -Path $build | Out-Null
+# Also discards the tree when a header layout has moved under it.
+Assert-FreshBuild -BuildDir $build -SourceDirs @((Join-Path $RepoRoot 'libkg'), (Join-Path $RepoRoot 'tests/tlcodec'))
 
 Push-Location $build
 try {

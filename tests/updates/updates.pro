@@ -18,7 +18,10 @@ QT       = core
 CONFIG  += console
 CONFIG  -= app_bundle
 TEMPLATE = app
-TARGET   = updates
+# NOT "updates": Windows treats an executable whose name contains update,
+# setup, install or patch as an installer and refuses to start it without
+# elevation, so the suite cannot run unattended under that name.
+TARGET   = seqcheck
 
 LIBKG   = $$PWD/../../libkg
 TLCODEC = $$PWD/../tlcodec

@@ -26,6 +26,10 @@ SymboGram
 # --- desktop (Qt 4.8.7 / MinGW) shadow build, used for autonomous testing ---
 /build-desktop/
 /build-desktop-debug/
+# CONFIG+=devlog keeps qDebug/qWarning compiled in and needs its own tree.
+# Every local build embeds the builder api_hash, so a build directory that
+# is untracked but not ignored is one git add away from publishing one.
+/build-devlog/
 
 # --- packaged artifacts ---
 /dist/
