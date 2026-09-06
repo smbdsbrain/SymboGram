@@ -115,6 +115,28 @@ Item {
                 anchors.left: parent.left
             }
 
+            // Sized from its own text so a four-figure count still fits,
+            // rather than clipping inside a fixed circle.
+            Rectangle {
+                id: unreadBadge
+                visible: unreadCount > 0
+                anchors.top: parent.top
+                anchors.right: parent.right
+                width: visible ? Math.max(height, unreadLabel.width + 8 * kgScaling) : 0
+                height: unreadLabel.height + 2 * kgScaling
+                radius: height / 2
+                color: silent ? "#AAAAAA" : globalAccent
+
+                Text {
+                    id: unreadLabel
+                    anchors.centerIn: parent
+                    text: unreadCount > 999 ? "999+" : unreadCount
+                    color: "#FFFFFF"
+                    font.bold: true
+                    font.pixelSize: 11 * kgScaling
+                }
+            }
+
             Text {
                 id: messageTextLabel
                 text: messageText
@@ -123,7 +145,8 @@ Item {
                 font.pixelSize: 12 * kgScaling
                 anchors.top: parent.top
                 anchors.left: messageSenderLabel.right
-                anchors.right: parent.right
+                anchors.right: unreadBadge.left
+                anchors.rightMargin: unreadBadge.visible ? 5 * kgScaling : 0
 
                 onLinkActivated: {
                     openDialog();

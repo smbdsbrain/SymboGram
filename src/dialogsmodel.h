@@ -44,6 +44,7 @@ private:
         TooltipRole,
         PeerBytesRole,
         MessageSenderNameRole,
+        UnreadCountRole,
         MessageSenderColorRole
     };
 

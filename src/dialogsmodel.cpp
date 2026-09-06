@@ -103,6 +103,7 @@ QHash<int, QByteArray> DialogsModel::roleNames() const
     roles[TooltipRole] = "tooltip";
     roles[PeerBytesRole] = "peerBytes";
     roles[MessageSenderNameRole] = "messageSenderName";
+    roles[UnreadCountRole] = "unreadCount";
     roles[MessageSenderColorRole] = "messageSenderColor";
 
     return roles;
@@ -467,6 +468,7 @@ TgObject DialogsModel::createRow(TgObject dialog, TgObject peer, TgObject messag
 
     row["peer"] = peer;
     row["pinned"] = dialog["pinned"].toBool();
+    row["unreadCount"] = dialog["unread_count"].toInt();
     row["silent"] = dialog["notify_settings"].toMap()["silent"].toBool();
 
     TgObject inputPeer = peer;
@@ -649,6 +651,32 @@ void DialogsModel::gotUpdate(TgObject update, TgLongVariant messageId, TgList us
     peerCache().put(users, chats);
 
     switch (ID(update)) {
+    // The account read the chat somewhere -- here or on another client. The
+    // server sends no new dialog list for it, so the badge only clears if this
+    // is applied.
+    case TLType::UpdateReadHistoryInbox:
+    case TLType::UpdateReadChannelInbox:
+    {
+        const bool channel = ID(update) == TLType::UpdateReadChannelInbox;
+
+        for (qint32 i = 0; i < _dialogs.size(); ++i) {
+            const TgObject peer = _dialogs[i]["peer"].toMap();
+
+            const bool matches = channel
+                    ? TgClient::getPeerId(peer).toLongLong() == update["channel_id"].toLongLong()
+                    : TgClient::peersEqual(peer, update["peer"].toMap());
+
+            if (!matches) {
+                continue;
+            }
+
+            _dialogs[i]["unreadCount"] = update["still_unread_count"].toInt();
+            emit dataChanged(index(i), index(i));
+            break;
+        }
+
+        return;
+    }
     case TLType::UpdateNewMessage:
     case TLType::UpdateNewChannelMessage:
     {
@@ -693,6 +721,11 @@ void DialogsModel::gotUpdate(TgObject update, TgLongVariant messageId, TgList us
         }
 
         message["out"] = TgClient::getPeerId(sender) == _client->getUserId();
+
+        if (!message["out"].toBool()) {
+            _dialogs[rowIndex]["unreadCount"] =
+                    _dialogs[rowIndex]["unreadCount"].toInt() + 1;
+        }
 
         handleDialogMessage(_dialogs[rowIndex], message, sender, users, chats);
         emit dataChanged(index(rowIndex), index(rowIndex));
