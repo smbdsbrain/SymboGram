@@ -32,7 +32,14 @@ per layer, with the layer in the commit message — which is exactly a pin.
 The trailing `// LAYER 229` comment is tdesktop's own marker. The generator's
 parser strips line comments, so it does not reach the output; the layer reaches
 `#define API_LAYER` from `gen-schema.ps1 -Layer` instead, and the two are kept
-in step by hand. `tools/check-schema-drift.py` is what verifies they agree.
+in step by hand. `tools/check-schema-drift.py` is what verifies they agree, along with the
+layer and digest recorded below:
+
+    python tools\check-schema-drift.py
+
+It reads only files already in the repository, so it needs no network and
+no credentials. `gen-schema.ps1 -Check` cannot answer this: it takes the
+layer as an argument and so cannot notice that the argument is wrong.
 
 ## The MTProto schema is separate, and unpinned here
 
