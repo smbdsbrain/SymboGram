@@ -57,6 +57,7 @@ TgClient::TgClient(QObject *parent, qint32 dcId, QString sessionName, bool useTe
     , currentDownloading(0)
     , filePackets()
     , clientForDc()
+    , _testDc(useTestDc)
     , migrationForDc()
     , _main()
     , _connected()
@@ -65,7 +66,6 @@ TgClient::TgClient(QObject *parent, qint32 dcId, QString sessionName, bool useTe
     , importMethod()
     , _cacheDirectory()
     , _sessionDirectory()
-    , _testDc(useTestDc)
     , _updates(0)
     , _store()
     , _srpWorker(0)
@@ -399,9 +399,9 @@ void TgClient::dispatchUpdate(TgObject update, TgList users, TgList chats, qint3
 
 void TgClient::cacheResponse(const TgObject &response)
 {
-    // Written but never read back yet. Landing the writes on their own means
-    // this commit cannot change what anyone sees -- only what is on disk --
-    // so a fault in the reading is a separate bisect from a fault here.
+    // The dialog list and the peers behind it are served from here at
+    // startup. Message history is written and not read back yet, so
+    // opening a chat still waits on messages.getHistory.
     TgStore *s = store();
     if (!s->isOpen()) {
         return;

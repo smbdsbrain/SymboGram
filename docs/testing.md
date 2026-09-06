@@ -28,6 +28,7 @@ pwsh -File tools\run-crypto.ps1
 pwsh -File tools\run-updates.ps1
 pwsh -File tools\run-store.ps1
 pwsh -File tools\gen-schema.ps1 -Check -Layer 229 -Api schema\api.tl
+python tools\check-schema-drift.py
 python tools\verify-vendored.py
 pwsh -File tools\audit-public.ps1
 ```
@@ -65,6 +66,14 @@ Pass the layer the tree is actually on. `-Check -Layer 166` was the one-time
 provenance proof that the vendored generator faithfully reproduces upstream's
 checked-in output; it is expected to fail now that the tree is at 229, and
 re-running it means checking out the pre-bump commit first.
+
+`check-schema-drift.py` answers the question `-Check` cannot. Four places
+name the layer -- tdesktop's `// LAYER` marker in `schema/api.tl`, the
+`API_LAYER` define in `libkg/tlschema.h` that `invokeWithLayer` sends, and
+the layer and digest recorded in `schema/UPSTREAM.md` -- and `-Check` takes
+the layer as an argument, so it cannot notice that the argument is wrong.
+Readers built for one layer and fed another parse silently and wrongly, so
+the disagreement has to be caught here rather than on the wire.
 
 The other three targets are the same shape and exist for the same reason —
 each covers logic whose failures are invisible from the outside.
@@ -179,7 +188,7 @@ sending a message advances it by exactly what the server said it should. The
 offline tier can check the arithmetic but not that Telegram's values have the
 shape the arithmetic assumes.
 
-### The gap scenario, and why it skips
+### The gap scenario
 
 `-Scenario gap` is three processes: the client records its position and
 exits, a second account sends it a message while it is gone, and the client
@@ -191,24 +200,25 @@ It needs a **second account**, and the reason is worth stating because the
 obvious shortcut does not work. Two sessions of one account are the same
 authorization: Telegram queues that authorization's updates and pushes them to
 whichever connection appears next, so the message arrives with no difference
-involved and the test asserts nothing. That version of this scenario passed
+involved and the test asserts nothing. That version of this scenario passes
 with the whole recovery path disabled.
 
-**This assertion has never run.** Signing a second account into the desktop
-build needs a login code, and an account with a cloud password cannot be
-signed in at all until 2FA exists. Until one is available the scenario reports
-`# SKIP`, and a skip is not a pass — the check step has never been executed
-against a real gap, so it is unproven code rather than proven coverage.
+Setting it up: log a second account into the desktop build with
+`SYMBOGRAM_SESSION_DIR` set to `secrets/session-b`, and make sure the two
+accounts have exchanged at least one message so the sender holds an
+`access_hash` for the client. The scenario reports `# SKIP` until a signed-in
+session is there, and checks for a `UserId` rather than for the file: an
+abandoned sign-in leaves an auth key behind with no user, which would
+otherwise send the run off to time out instead of saying what is wrong.
 
-What it takes: log a second account into the desktop build with
-`SYMBOGRAM_SESSION_DIR` set to `secrets/session-b`, make sure the two accounts
-have exchanged at least one message so the sender holds an `access_hash` for
-the client, and re-run.
-
-`run-e2e.ps1` **copies** the session into `build-desktop/` before running. Do not
-work around that: `TgTransport::handleRpcError` calls `resetSession()` on any
-401, so a run against the original file destroys the login on the first
+`run-e2e.ps1` **copies** both sessions into `build-desktop/` before running. Do
+not work around that: `TgTransport::handleRpcError` calls `resetSession()` on
+any 401, so a run against an original destroys the login on the first
 expired-session run.
+
+This is the only assertion anywhere that gap recovery recovers anything. The
+offline tier checks the arithmetic of the `pts` rules; only this one puts a
+real hole in a real sequence and demands the missed message back.
 
 **Covers:** the real schema as the real server emits it — the only tier that can
 discover that a layer no longer parses what production sends. A method's return
@@ -216,8 +226,10 @@ type is not part of any constructor definition, so a schema diff cannot show it
 changing — `messages.getDialogFilters` went from `Vector<DialogFilter>` to a
 boxed `messages.DialogFilters` at 229, and only a live server reveals that class
 of change.
-**Does not cover:** login, signup, 2FA, or anything needing a second real
-account.
+**Does not cover:** signup, or first sign-in from a phone number, which
+needs a code delivered to another logged-in session. Two-step verification
+is covered: an account with a cloud password signs in, and the gap scenario
+runs against the second account that makes possible.
 
 ## What no tier covers
 
@@ -236,9 +248,10 @@ Worth reading as a list of things a green run says nothing about:
   easiest to misread as coverage.
 - **Long-running behaviour.** Ping and disconnect handling, salt rotation,
   `bad_server_salt` recovery, reconnection over hours.
-- **Gap recovery under a real gap.** The `gap` scenario exists for exactly
-  this and has never run: it needs a second account, and 2FA stands between us
-  and one. See the section above before reading its skip as coverage.
+- **Gap recovery on the device.** The `gap` scenario covers it on the
+  desktop, against a real hole in a real sequence. Nothing exercises the
+  same path on a handset, where the connection drops for reasons a PC
+  never sees.
 - **Whether SQLite exists on the device.** Qt for Symbian builds the driver
   into QtSql rather than shipping it as a plugin, and no tier here can ask a
   handset. The app logs which answer it got; read the log rather than assuming.
