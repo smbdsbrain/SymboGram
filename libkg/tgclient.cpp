@@ -561,6 +561,21 @@ void TgClient::handleObject(QByteArray data, qint64 messageId)
         emit messagesDialogsResponse(dialogs, messageId);
         break;
     }
+    case TLType::MessagesAffectedMessages:
+    {
+        TgObject affected = tlDeserialize<&readTLMessagesAffectedMessages>(data).toMap();
+
+        // The pts goes to the pipeline before anyone else sees the reply.
+        // Nothing will push this change back to us, so dropping it leaves the
+        // local sequence behind by pts_count and makes the next pushed update
+        // look like a gap.
+        if (_updates != 0) {
+            _updates->handleAffected(affected, messageId);
+        }
+
+        emit messagesAffectedMessagesResponse(affected, messageId);
+        break;
+    }
     case TLType::UploadFile:
     case TLType::UploadFileCdnRedirect:
         handleDownloadingFile(tlDeserialize<&readTLUploadFile>(data).toMap(), messageId);

@@ -223,3 +223,13 @@ TgObject TgClient::getDialogsOffsets(TgObject dialogs)
 
     return offsets;
 }
+
+TgObject TgClient::toInputChannel(TgObject obj)
+{
+    TGOBJECT(TLType::InputChannel, inputChannel);
+
+    inputChannel["channel_id"] = obj["id"];
+    inputChannel["access_hash"] = obj["access_hash"];
+
+    return inputChannel;
+}

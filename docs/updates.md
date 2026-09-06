@@ -73,6 +73,29 @@ enumerate it:
   sequence of events, so they are not replayed as new-message updates: that
   would duplicate whatever the model already holds.
 
+## A pts that arrives in a reply
+
+Not every change to the sequence is pushed. When this client deletes messages
+or sends a read receipt, the reply -- `messages.affectedMessages` -- carries a
+`pts` and a `pts_count` for that change, and **no update follows**. The server
+considers the client informed, because it is: it is holding the reply.
+
+So the reply has to be applied exactly as a pushed update would be, and it is,
+in `TgUpdatesManager::handleAffected`. Dropping it does not lose the
+change -- the messages are already gone locally -- it leaves the local `pts`
+behind by `pts_count`. The next update that genuinely arrives then looks like a
+gap, and the client fetches a difference to recover something it never missed:
+one spurious round trip per delete, on the scarcest thing the device has.
+
+The reply is matched to its request by message id, and the request is recorded
+with the channel it was addressed to, because a channel keeps its own sequence
+and applying its `pts` to the common one corrupts both. `channels.readHistory` is the
+exception in this family: it returns `Bool` rather than `affectedMessages`, so
+there is no `pts` on that path to account for.
+
+A reply whose message id was not recorded is ignored rather than applied, for
+the same reason a difference answered to a previous run is -- see below.
+
 ## Where the state lives
 
 Beside the session, in the same ini as the auth key, under `UpdateState` and

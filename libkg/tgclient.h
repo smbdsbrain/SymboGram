@@ -151,6 +151,7 @@ public slots:
     static TgObject getDialogsOffsets(TgObject dialogs);
     static TgLongVariant commonPeerType(TgObject obj);
     static bool peersEqual(TgObject peer1, TgObject peer2);
+    static TgObject toInputChannel(TgObject obj);
 
     TgLongVariant helpGetCountriesList(qint32 hash = 0, QString langCode = "");
     TgLongVariant authSendCode(QString phoneNumber);
@@ -172,9 +173,14 @@ public slots:
     TgLongVariant messagesGetDialogsWithOffsets(TgObject offsets = TgObject(), qint32 limit = 20, qint32 folderId = 0, bool excludePinned = false, TgLongVariant hash = 0);
     TgLongVariant authSignUp(QString phoneNumber, QString phoneCodeHash, QString firstName, QString lastName = "");
     TgLongVariant messagesGetHistory(TgObject inputPeer, qint32 offsetId = 0, qint32 offsetDate = 0, qint32 addOffset = 0, qint32 limit = 20, qint32 maxId = 0, qint32 minId = 0, TgLongVariant hash = 0);
-    TgLongVariant messagesSendMessage(TgObject inputPeer, QString message, TgObject media = TgObject(), TgLongVariant randomId = randomLong());
+    TgLongVariant messagesSendMessage(TgObject inputPeer, QString message, TgObject media = TgObject(), TgLongVariant randomId = randomLong(), qint32 replyToMsgId = 0);
     TgLongVariant messagesSendMedia(TgObject inputPeer, TgObject media, QString message = "", TgLongVariant randomId = randomLong());
     TgLongVariant messagesGetDialogFilters();
+    TgLongVariant messagesDeleteMessages(TgVector ids, bool revoke);
+    TgLongVariant messagesReadHistory(TgObject inputPeer, qint32 maxId);
+    TgLongVariant messagesEditMessage(TgObject inputPeer, qint32 messageId, QString message);
+    TgLongVariant channelsDeleteMessages(TgObject channel, TgVector ids);
+    TgLongVariant channelsReadHistory(TgObject channel, qint32 maxId);
     TgLongVariant usersGetUsers(TgVector users = TgList());
 
     TgLongVariant updatesGetState();
@@ -238,6 +244,11 @@ signals:
 
     void vectorDialogFilterResponse(TgVector data, TgLongVariant messageId);
     void vectorUserResponse(TgVector data, TgLongVariant messageId);
+
+    // messages.AffectedMessages, the reply to a delete or a read receipt.
+    // It carries a pts for a change this client made and will not be
+    // pushed an update about.
+    void messagesAffectedMessagesResponse(TgObject data, TgLongVariant messageId);
 
     void boolResponse(bool response, TgLongVariant messageId);
     void unknownResponse(qint32 conId, QByteArray data, TgLongVariant messageId);

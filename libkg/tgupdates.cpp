@@ -715,6 +715,56 @@ TgObject TgUpdatesManager::wrapNewMessage(const TgObject &message)
     return update;
 }
 
+void TgUpdatesManager::expectAffected(qint64 messageId, qint64 channelId)
+{
+    if (messageId != 0) {
+        _affectedChannel.insert(messageId, channelId);
+    }
+}
+
+bool TgUpdatesManager::handleAffected(TgObject affected, qint64 messageId)
+{
+    if (!_affectedChannel.contains(messageId)) {
+        // Someone else's reply, or one answered to a previous run of this
+        // process. Applying its pts would move a sequence on evidence that
+        // does not belong to it.
+        return false;
+    }
+
+    const qint64 channelId = _affectedChannel.take(messageId);
+    const qint32 pts = affected["pts"].toInt();
+    const qint32 ptsCount = affected["pts_count"].toInt();
+
+    switch (_state.check(channelId, pts, ptsCount)) {
+    case TgUpdatesState::Apply:
+        _state.advance(channelId, pts);
+        maybeSave();
+
+        if (channelId == 0) {
+            _client->dispatchUpdatesState(_state.pts(), _state.qts(),
+                                          _state.date(), _state.seq());
+        }
+
+        // Anything parked behind this may now be contiguous.
+        drainPending();
+        break;
+
+    case TgUpdatesState::Duplicate:
+        break;
+
+    case TgUpdatesState::Gap:
+        // Something else moved the sequence while this request was in flight.
+        if (channelId == 0) {
+            requestDifference();
+        } else {
+            enqueueChannel(channelId);
+        }
+        break;
+    }
+
+    return true;
+}
+
 bool TgUpdatesManager::handleRpcError(qint32 errorCode, QString errorMessage, qint64 messageId)
 {
     (void) errorCode;

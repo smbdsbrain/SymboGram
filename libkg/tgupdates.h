@@ -85,6 +85,16 @@ public slots:
     bool handleChannelDifference(TgObject difference, qint64 messageId);
     bool handleRpcError(qint32 errorCode, QString errorMessage, qint64 messageId);
 
+    // A reply that carries its own pts, for a change this client made. The
+    // server pushes no update for it, so the sequence only stays level if the
+    // reply is applied here. Returns false for a message id it did not expect.
+    bool handleAffected(TgObject affected, qint64 messageId);
+
+    // Records which channel a delete or a read receipt was addressed to, so
+    // its reply advances that channel's sequence and not the common one.
+    // channelId 0 means the common sequence.
+    void expectAffected(qint64 messageId, qint64 channelId);
+
     void authorized();
     void initialized();
     void disconnected();
@@ -137,6 +147,7 @@ private:
     qint64 _stateRequestId;
     qint64 _differenceRequestId;
     QHash<qint64, qint64> _channelRequestId;   // msg_id -> channel_id
+    QHash<qint64, qint64> _affectedChannel;    // msg_id -> channel_id
     QList<qint64> _channelQueue;
 
     // channel_id -> access_hash, learned from the chats lists that arrive with

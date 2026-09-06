@@ -39,6 +39,7 @@ SOURCES += \
     $$PWD/tgc_auth.cpp \
     $$PWD/tgc_help.cpp \
     $$PWD/tgc_messages.cpp \
+    $$PWD/tgc_channels.cpp \
     $$PWD/tgc_updates.cpp \
     $$PWD/tgc_utils.cpp \
     $$PWD/tgc_files.cpp \

@@ -119,3 +119,23 @@ libkg/srp.cpp
 libkg/tgsrpworker.h
 libkg/tgsrpworker.cpp
 libkg/tgc_password.cpp
+
+# --- libkg: message operations ---
+# tgc_messages.cpp  messages.deleteMessages, readHistory and editMessage, plus
+#                 reply_to on sendMessage. The reply_to key is inserted only
+#                 when there is an id: the generated writer computes flags from
+#                 which keys are present, so an empty map sets the bit and then
+#                 writes nothing for it.
+# tgclient.{h,cpp}  the new methods, an InputChannel helper, and the
+#                 messages.AffectedMessages case -- whose pts reaches the
+#                 update pipeline before the reply reaches anyone else.
+# tgupdates.{h,cpp}  applies a pts that arrives in a reply. Nothing pushes
+#                 that change back, so without it the local sequence falls
+#                 behind and the next pushed update reads as a gap.
+# tgc_utils.cpp   toInputChannel, beside the other peer helpers.
+#
+# New file, first-party:
+# tgc_channels.cpp  channels.deleteMessages and channels.readHistory. They take
+#                 an InputChannel rather than an InputPeer, and their
+#                 messages.* counterparts do not reach a channel at all.
+libkg/tgc_channels.cpp
