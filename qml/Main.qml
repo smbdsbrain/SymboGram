@@ -85,7 +85,10 @@ Item {
         onDisconnected: {
             setAuthProgress(false);
 
-            if (!hasUserId) {
+            //Not while the password page is up: the key derivation is the
+            //longest window in the login flow for a blip to land in, and
+            //dropping to the intro page discards a password mid-check.
+            if (!hasUserId && authScreen.currentIndex != 3) {
                 root.state = "AUTH";
                 authScreen.currentIndex = 0;
             }
@@ -176,6 +179,38 @@ Item {
             else if (errorMessage == "PHONE_CODE_INVALID") {
                 snackBar.text = "You have entered an invalid code.";
             }
+            else if (errorMessage == "PASSWORD_HASH_INVALID") {
+                authScreen.passwordPage.progress = -1;
+                snackBar.text = "That password is not right.";
+            }
+            else if (errorMessage == "SRP_PASSWORD_CHANGED") {
+                //The password changed under us, so the one just typed is now
+                //known to be wrong. Refresh the hint rather than retrying.
+                authScreen.passwordPage.progress = -1;
+                snackBar.text = "The cloud password has changed. Please try again.";
+                telegramClient.accountGetPassword();
+            }
+            else if (errorMessage.indexOf("FLOOD_WAIT_") == 0) {
+                //Telegram rate-limits per method, so this arrives for ordinary
+                //background work -- avatar and media fetches -- as readily as
+                //for a login attempt. Only the login flow can honestly call
+                //them attempts; saying so after a successful login reports a
+                //failure that did not happen. The generic branch below would
+                //print FLOOD_WAIT_31, which is not a sentence either.
+                var floodSeconds = errorMessage.substring(11);
+
+                if (root.state == "AUTH") {
+                    authScreen.passwordPage.progress = -1;
+                    snackBar.text = "Too many attempts. Please wait "
+                            + floodSeconds + " seconds.";
+                }
+                else {
+                    //The transport replays a flood-waited request on its next
+                    //ping tick, so this is a delay rather than a loss.
+                    snackBar.text = "Telegram is rate-limiting requests. Retrying in "
+                            + floodSeconds + "s.";
+                }
+            }
             else {
                 snackBar.text = "RPC error occured: " + errorMessage + " (" + errorCode + ")"
             }
@@ -194,8 +229,27 @@ Item {
         onTfaRequired: {
             setAuthProgress(false);
 
-            //TODO 2fa support
-            snackBar.text =  "2FA isn't supported now. You can disable 2FA, log in and enable it afterwards.";
+            authScreen.passwordPage.reset();
+            authScreen.currentIndex = 3;
+
+            //Fetched now only to show the hint. The proof fetches its own
+            //parameters when the user submits, because srp_id expires and a
+            //stale one is refused as though the password were wrong.
+            telegramClient.accountGetPassword();
+        }
+
+        onAccountPasswordResponse: {
+            authScreen.passwordPage.hint = data["hint"] ? data["hint"] : "";
+        }
+
+        onPasswordCheckProgress: {
+            authScreen.passwordPage.progress = percent;
+        }
+
+        onPasswordCheckFailed: {
+            setAuthProgress(false);
+            authScreen.passwordPage.progress = -1;
+            snackBar.text = reason;
         }
 
         onHelpCountriesListResponse: {

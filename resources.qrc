@@ -9,6 +9,7 @@
         <file>qml/auth/Button.qml</file>
         <file>qml/auth/CodePage.qml</file>
         <file>qml/auth/IntroPage.qml</file>
+        <file>qml/auth/PasswordPage.qml</file>
         <file>qml/auth/PhonePage.qml</file>
         <file>qml/dialog/DialogItem.qml</file>
         <file>qml/dialog/DialogPage.qml</file>

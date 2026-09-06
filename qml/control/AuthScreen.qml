@@ -16,9 +16,12 @@ Rectangle {
             state = "PHONE";
         if (currentIndex == 2)
             state = "CODE";
+        if (currentIndex == 3)
+            state = "PASSWORD";
     }
 
     property alias phonePage: phonePage
+    property alias passwordPage: passwordPage
 
     states: [
         State {
@@ -35,6 +38,11 @@ Rectangle {
             }
             PropertyChanges {
                 target: codePage
+                anchors.leftMargin: width
+                opacity: 0
+            }
+            PropertyChanges {
+                target: passwordPage
                 anchors.leftMargin: width
                 opacity: 0
             }
@@ -56,6 +64,11 @@ Rectangle {
                 anchors.leftMargin: width
                 opacity: 0
             }
+            PropertyChanges {
+                target: passwordPage
+                anchors.leftMargin: width
+                opacity: 0
+            }
         },
         State {
             name: "CODE"
@@ -71,6 +84,34 @@ Rectangle {
             }
             PropertyChanges {
                 target: codePage
+                anchors.leftMargin: 0
+                opacity: 1
+            }
+            PropertyChanges {
+                target: passwordPage
+                anchors.leftMargin: width
+                opacity: 0
+            }
+        },
+        State {
+            name: "PASSWORD"
+            PropertyChanges {
+                target: introPage
+                anchors.leftMargin: -width
+                opacity: 0
+            }
+            PropertyChanges {
+                target: phonePage
+                anchors.leftMargin: -width
+                opacity: 0
+            }
+            PropertyChanges {
+                target: codePage
+                anchors.leftMargin: -width
+                opacity: 0
+            }
+            PropertyChanges {
+                target: passwordPage
                 anchors.leftMargin: 0
                 opacity: 1
             }
@@ -103,6 +144,13 @@ Rectangle {
 
     CodePage {
         id: codePage
+        anchors.left: parent.left
+        width: parent.width
+        height: parent.height
+    }
+
+    PasswordPage {
+        id: passwordPage
         anchors.left: parent.left
         width: parent.width
         height: parent.height
@@ -159,6 +207,17 @@ Rectangle {
             anchors.fill: parent
             onClicked: {
                 setAuthProgress(false);
+
+                // Back from the password page returns to the phone number, not
+                // to the code page: that code has already been spent, and
+                // re-entering it fails.
+                if (authScreen.currentIndex == 3) {
+                    telegramClient.cancelPasswordCheck();
+                    passwordPage.reset();
+                    authScreen.currentIndex = 1;
+                    return;
+                }
+
                 authScreen.currentIndex = Math.max(0, authScreen.currentIndex - 1)
             }
         }

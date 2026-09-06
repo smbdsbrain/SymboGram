@@ -5,6 +5,9 @@ Item {
     height: 40 * kgScaling
 
     property alias text: innerInput.text
+    // TextInput.Normal unless a caller says otherwise, so the phone and code
+    // pages are unaffected.
+    property alias echoMode: innerInput.echoMode
 
     state: innerInput.activeFocus ? "FOCUSED" : "NOT_FOCUSED"
 

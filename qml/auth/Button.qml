@@ -5,6 +5,9 @@ Item {
     signal clicked()
 
     property bool enabled: true
+    // buttonText keeps "Next" as its own default, so the pages that do not set
+    // this are unchanged.
+    property alias text: buttonText.text
 
     width: buttonText.width + 40 * kgScaling
     height: 40 * kgScaling
