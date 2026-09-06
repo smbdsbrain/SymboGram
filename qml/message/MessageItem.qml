@@ -38,18 +38,32 @@ Item {
         }
     ]
 
-//    MouseArea {
-//        anchors.fill: parent
-//        onClicked: {
-//            if (ListView.view.parent.globalState == "SHOW_SELECT")
-//                ListView.view.parent.globalState = "NO_SELECT"
-//            else ListView.view.parent.globalState = "SHOW_SELECT"
-//        }
-//    }
+    // Declared before the content on purpose, so it sits BEHIND it. Qt Quick 1
+    // has no event propagation to speak of: a MouseArea over the delegate
+    // would swallow the link taps in the message text and the handlers on the
+    // image and document rows. Text ignores a press that is not on a link, and
+    // that is what reaches this.
+    MouseArea {
+        anchors.fill: parent
+
+        onPressAndHold: {
+            ListView.view.parent.globalState = "SHOW_SELECT";
+            messagesModel.toggleSelection(messageRoot.messageIndex);
+        }
+
+        onClicked: {
+            // Only while selecting. Otherwise a tap anywhere on a message
+            // would start selecting things nobody asked to select.
+            if (ListView.view.parent.globalState == "SHOW_SELECT") {
+                messagesModel.toggleSelection(messageRoot.messageIndex);
+            }
+        }
+    }
 
     Image {
         id: checkbox
-        source: "../../img/checkbox-blank-circle-outline.png"
+        source: selected ? "../../img/checkbox-marked-circle.png"
+                         : "../../img/checkbox-blank-circle-outline.png"
         smooth: true
         width: 20 * kgScaling
         height: width

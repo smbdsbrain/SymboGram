@@ -14,6 +14,7 @@
         <file>qml/dialog/DialogItem.qml</file>
         <file>qml/dialog/DialogPage.qml</file>
         <file>qml/dialog/FolderItem.qml</file>
+        <file>qml/message/MessageActionBar.qml</file>
         <file>qml/message/MessageDocument.qml</file>
         <file>qml/message/MessageEdit.qml</file>
         <file>qml/message/MessageImage.qml</file>
