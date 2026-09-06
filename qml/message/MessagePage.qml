@@ -25,7 +25,7 @@ Rectangle {
                 messagesModel.fetchMoreUpwards();
             }
             if (atYEnd && messagesModel.canFetchMoreDownwards()) {
-                messagesModel.canFetchMoreDownwards();
+                messagesModel.fetchMoreDownwards();
             }
         }
 
