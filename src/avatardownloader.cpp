@@ -95,6 +95,11 @@ qint64 AvatarDownloader::downloadPhoto(TgObject photo)
     QString avatarFilePath = _client->sessionDirectory().absoluteFilePath(relativePath);
 
     if (!_downloadedPhotos.contains(photoId)) {
+        if (_pendingPhotos.contains(photoId)) {
+            return photoId;
+        }
+
+        _pendingPhotos.insert(photoId);
         qint64 loadingId = _client->downloadFile(avatarFilePath, photo).toLongLong();
         _requestsPhotos[loadingId] = photoId;
     } else {
@@ -127,6 +132,11 @@ qint64 AvatarDownloader::downloadAvatar(TgObject peer)
     QString avatarFilePath = _client->sessionDirectory().absoluteFilePath(relativePath);
 
     if (!_downloadedAvatars.contains(photoId)) {
+        if (_pendingAvatars.contains(photoId)) {
+            return photoId;
+        }
+
+        _pendingAvatars.insert(photoId);
         qint64 loadingId = _client->downloadFile(avatarFilePath, peer).toLongLong();
         _requestsAvatars[loadingId] = photoId;
     } else {
@@ -146,6 +156,8 @@ void AvatarDownloader::fileDownloaded(TgLongVariant fileId, QString filePath)
 
     TgLongVariant photoId = _requestsAvatars.take(fileId.toLongLong());
     if (!photoId.isNull()) {
+        _pendingAvatars.remove(photoId.toLongLong());
+
         QFile file(filePath);
         if (!file.open(QFile::ReadOnly)) {
             return;
@@ -176,6 +188,8 @@ void AvatarDownloader::fileDownloaded(TgLongVariant fileId, QString filePath)
 
     photoId = _requestsPhotos.take(fileId.toLongLong());
     if (!photoId.isNull()) {
+        _pendingPhotos.remove(photoId.toLongLong());
+
         QFile file(filePath);
         if (!file.open(QFile::ReadOnly)) {
             return;
@@ -207,8 +221,10 @@ void AvatarDownloader::fileDownloadCanceled(TgLongVariant fileId, QString filePa
 {
     QMutexLocker lock(&_mutex);
 
-    _requestsAvatars.remove(fileId.toLongLong());
-    _requestsPhotos.remove(fileId.toLongLong());
+    // A cancelled download has to release its mark too, or the avatar is
+    // never requested again for the life of the process.
+    _pendingAvatars.remove(_requestsAvatars.take(fileId.toLongLong()).toLongLong());
+    _pendingPhotos.remove(_requestsPhotos.take(fileId.toLongLong()).toLongLong());
 }
 
 QString AvatarDownloader::getAvatarText(QString title)

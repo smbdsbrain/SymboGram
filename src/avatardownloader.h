@@ -4,6 +4,7 @@
 #include <QObject>
 
 #include <QMutex>
+#include <QSet>
 #include <QColor>
 #include <QSettings>
 #include "tgclient.h"
@@ -19,6 +20,14 @@ private:
     TgLongVariant _userId;
     QHash<qint64, TgLongVariant> _requestsAvatars;
     QHash<qint64, TgLongVariant> _requestsPhotos;
+    // Photo ids already being fetched. A downloaded id only reaches
+    // _downloadedAvatars when its file arrives, so without this the same
+    // avatar is requested again by every response that mentions the peer --
+    // each history page, each dialog page, each new message -- and every
+    // repeat opens its own upload.getFile sequence. A populated chat list
+    // reaches Telegram's rate limit on that method within seconds.
+    QSet<qint64> _pendingAvatars;
+    QSet<qint64> _pendingPhotos;
     TgList _downloadedAvatars;
     TgList _downloadedPhotos;
 
