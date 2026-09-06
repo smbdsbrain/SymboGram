@@ -10,6 +10,32 @@ Rectangle {
 
     property alias messageText: innerEdit.text
 
+    // 0 when composing. Editing takes precedence: the send button rewrites the
+    // message instead of sending a new one.
+    property int editingMsgId: 0
+    property int replyingMsgId: 0
+
+    function startEditing(messageId, source) {
+        editingMsgId = messageId;
+        replyingMsgId = 0;
+        messageText = source;
+    }
+
+    function startReplying(messageId) {
+        replyingMsgId = messageId;
+        editingMsgId = 0;
+        messagesModel.setReplyTo(messageId);
+    }
+
+    function cancelComposeMode() {
+        if (editingMsgId != 0) {
+            messageText = "";
+        }
+        editingMsgId = 0;
+        replyingMsgId = 0;
+        messagesModel.setReplyTo(0);
+    }
+
     function uploadingProgress(progress) {
         if (progress != -1 && progress != 100) {
             attachButton.state = "UPLOADING";
@@ -22,6 +48,56 @@ Rectangle {
 
     MouseArea {
         anchors.fill: parent
+    }
+
+    // Sits above the composer rather than inside it, so the text being written
+    // keeps its full width and the mode is still visible while typing.
+    Rectangle {
+        id: composeMode
+        anchors.bottom: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        height: visible ? 24 * kgScaling : 0
+        color: "#F2F2F2"
+        visible: editRoot.editingMsgId != 0 || editRoot.replyingMsgId != 0
+
+        Text {
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.leftMargin: 10 * kgScaling
+            text: editRoot.editingMsgId != 0 ? "Editing message" : "Replying to message"
+            color: "#666666"
+            font.pixelSize: 11 * kgScaling
+        }
+
+        Item {
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            width: height
+
+            Image {
+                anchors.centerIn: parent
+                source: "../../img/close.png"
+                width: 12 * kgScaling
+                height: width
+                smooth: true
+                asynchronous: true
+            }
+
+            MouseArea {
+                anchors.fill: parent
+                onClicked: editRoot.cancelComposeMode()
+            }
+        }
+
+        Rectangle {
+            anchors.bottom: parent.bottom
+            anchors.left: parent.left
+            anchors.right: parent.right
+            height: 1 * kgScaling
+            color: "#DDDDDD"
+        }
     }
 
     Item {
@@ -158,8 +234,14 @@ Rectangle {
             anchors.fill: parent
             onClicked: {
                 if (sendButton.state == "NOT_EMPTY") {
-                    messagesModel.sendMessage(messageText);
+                    if (editRoot.editingMsgId != 0) {
+                        messagesModel.editMessage(editRoot.editingMsgId, messageText);
+                    } else {
+                        messagesModel.sendMessage(messageText);
+                    }
+
                     messageText = "";
+                    editRoot.cancelComposeMode();
                 }
             }
         }

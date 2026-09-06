@@ -71,6 +71,38 @@
 #define HEX_AUTH_CHECK_PASSWORD \
     "164d8bd182f07fd2080706050403020104aabbccdd0000000411223344000000"
 
+
+// messages.affectedMessages#84d19185 pts:int pts_count:int, and the history
+// form that carries an offset as well. Both are replies to a change this
+// client made, and the pts in them is the only notice of it there will be.
+static const char HEX_AFFECTED_MESSAGES[] =
+    "8591d184761a020002000000";
+
+static const char HEX_AFFECTED_HISTORY[] =
+    "d1695cb47a1a02000500000000000000";
+
+// inputReplyToMessage#3bd4b7c2, with every optional field absent.
+static const char HEX_INPUT_REPLY_TO[] =
+    "c2b7d43b0000000092100000";
+
+// Request shapes, asserted against bytes for the reason tlExpectBytes gives.
+static const char HEX_DELETE_MESSAGES[] =
+    "d2958ee50100000015c4b51c020000000b00000016000000";
+
+static const char HEX_CHANNELS_DELETE[] =
+    "4efdc18428ec5af3d2040000000000002e1600000000000015c4b51c02000000"
+    "0b00000016000000";
+
+static const char HEX_READ_HISTORY[] =
+    "3a6d300e4ca5e8dd07000000000000002a0000000000000063000000";
+
+static const char HEX_CHANNELS_READ[] =
+    "374910cc28ec5af3d2040000000000002e1600000000000063000000";
+
+static const char HEX_EDIT_MESSAGE[] =
+    "6ce606b1000800004ca5e8dd07000000000000002a0000000000000092100000"
+    "0665646974656400";
+
 static const TlCase kCases[] = {
     // Fixed-shape constructors with no flags word, so exact byte equality is
     // the right assertion; anything weaker would be hiding something.
@@ -87,6 +119,12 @@ static const TlCase kCases[] = {
     // recomputes it from the keys present.
     { "account.password",        &readTLAccountPassword, &writeTLAccountPassword,
       0, 0, HEX_ACCOUNT_PASSWORD, TlStructural },
+    { "messages.affectedMessages", &readTLMessagesAffectedMessages,
+      &writeTLMessagesAffectedMessages, 0, 0, HEX_AFFECTED_MESSAGES, TlExact },
+    { "messages.affectedHistory",  &readTLMessagesAffectedHistory,
+      &writeTLMessagesAffectedHistory, 0, 0, HEX_AFFECTED_HISTORY, TlExact },
+    { "InputReplyTo/toMessage",    &readTLInputReplyTo, &writeTLInputReplyTo,
+      0, 0, HEX_INPUT_REPLY_TO, TlStructural },
 };
 
 // Cases whose expected outcome is a FAILURE. A suite that asserts nothing
@@ -184,6 +222,119 @@ int main(int argc, char *argv[])
             r.fail("control/a misnamed field truncates the request",
                    QString("expected 4 bytes from an unmatched inner object, got %1")
                        .arg(truncated.size()));
+        }
+    }
+
+    // The message operations, whose requests carry the same hazards: a peer
+    // written in the wrong place, a flag set for a field that is then not
+    // written, or an id vector that addresses the wrong space.
+    {
+        TgObject inputPeer;
+        inputPeer["_"] = TLType::InputPeerUser;
+        inputPeer["user_id"] = Q_INT64_C(7);
+        inputPeer["access_hash"] = Q_INT64_C(42);
+
+        TgObject channel;
+        channel["_"] = TLType::InputChannel;
+        channel["channel_id"] = Q_INT64_C(1234);
+        channel["access_hash"] = Q_INT64_C(5678);
+
+        TgList ids;
+        ids.append(11);
+        ids.append(22);
+
+        {
+            TgObject method;
+            method["_"] = TLType::MessagesDeleteMessagesMethod;
+            method["revoke"] = true;
+            method["id"] = ids;
+
+            tlExpectBytes(r, "messages.deleteMessages/request",
+                          &writeTLMethodMessagesDeleteMessages, 0, method,
+                          HEX_DELETE_MESSAGES);
+        }
+
+        {
+            TgObject method;
+            method["_"] = TLType::ChannelsDeleteMessagesMethod;
+            method["channel"] = channel;
+            method["id"] = ids;
+
+            tlExpectBytes(r, "channels.deleteMessages/request",
+                          &writeTLMethodChannelsDeleteMessages, 0, method,
+                          HEX_CHANNELS_DELETE);
+        }
+
+        {
+            TgObject method;
+            method["_"] = TLType::MessagesReadHistoryMethod;
+            method["peer"] = inputPeer;
+            method["max_id"] = 99;
+
+            tlExpectBytes(r, "messages.readHistory/request",
+                          &writeTLMethodMessagesReadHistory, 0, method,
+                          HEX_READ_HISTORY);
+        }
+
+        {
+            TgObject method;
+            method["_"] = TLType::ChannelsReadHistoryMethod;
+            method["channel"] = channel;
+            method["max_id"] = 99;
+
+            tlExpectBytes(r, "channels.readHistory/request",
+                          &writeTLMethodChannelsReadHistory, 0, method,
+                          HEX_CHANNELS_READ);
+        }
+
+        {
+            TgObject method;
+            method["_"] = TLType::MessagesEditMessageMethod;
+            method["peer"] = inputPeer;
+            method["id"] = 4242;
+            method["message"] = QString("edited");
+
+            tlExpectBytes(r, "messages.editMessage/request",
+                          &writeTLMethodMessagesEditMessage, 0, method,
+                          HEX_EDIT_MESSAGE);
+        }
+
+        // Deliberate-failure control.
+        //
+        // Generated writers recompute the flags word from which keys are
+        // present, and an empty map counts as present. Setting reply_to to one
+        // sets the bit and then writes nothing for it, because the inner
+        // switch matches no constructor -- a request that is shorter than it
+        // claims and is read as something else from that point on. This is
+        // why messagesSendMessage inserts the key only when there is an id.
+        {
+            TgObject method;
+            method["_"] = TLType::MessagesSendMessageMethod;
+            method["peer"] = inputPeer;
+            method["message"] = QString("hi");
+            method["random_id"] = Q_INT64_C(1);
+            method["reply_to"] = TgObject();
+
+            TgPacket packet;
+            writeTLMethodMessagesSendMessage(packet, method, 0);
+            const QByteArray truncated = packet.toByteArray();
+
+            TgObject without = method;
+            without.remove("reply_to");
+
+            TgPacket packet2;
+            writeTLMethodMessagesSendMessage(packet2, without, 0);
+            const QByteArray plain = packet2.toByteArray();
+
+            // Same length, different flags: the bit is set and nothing follows
+            // it, so every field after the flags word has moved.
+            if (truncated.size() == plain.size() && truncated != plain) {
+                r.ok("control/an empty reply_to sets a flag it does not write");
+            } else {
+                r.fail("control/an empty reply_to sets a flag it does not write",
+                       QString("expected the same length with different flags, got %1 and %2")
+                           .arg(truncated.size()).arg(plain.size()));
+            }
         }
     }
 

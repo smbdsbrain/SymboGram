@@ -1,5 +1,6 @@
 import QtQuick 1.0
 import SymboGram 1.0
+import "../control"
 
 Rectangle {
     property string globalState: "NO_SELECT"
@@ -33,6 +34,9 @@ Rectangle {
             if (atYEnd && messagesModel.canFetchMoreDownwards()) {
                 messagesModel.fetchMoreDownwards();
             }
+            if (atYEnd) {
+                messagesModel.markRead();
+            }
         }
 
         model: messagesModel
@@ -60,5 +64,42 @@ Rectangle {
         anchors.bottom: parent.bottom
         visible: globalState == "SHOW_SELECT"
         onClosed: globalState = "NO_SELECT"
+        onReplyRequested: {
+            messageEdit.startReplying(messagesModel.selectedMessageId());
+            globalState = "NO_SELECT";
+        }
+
+        onEditRequested: {
+            // The source text, not the rendered copy: the rendering applies
+            // entities and rewrites spoilers, and cannot be turned back.
+            messageEdit.startEditing(messagesModel.selectedMessageId(),
+                                     messagesModel.selectedMessageSource());
+            globalState = "NO_SELECT";
+        }
+
+        onDeleteRequested: {
+            var count = messagesModel.selectionCount();
+            var subject = count == 1 ? "this message" : count + " messages";
+
+            // "Delete for everyone" is offered only while it applies to the
+            // whole selection: the server refuses it for anything else, and a
+            // choice that fails is worse than one that is absent.
+            deleteConfirm.open("Delete " + subject + "?",
+                               "Delete for me",
+                               messagesModel.selectionIsRevocable()
+                                    ? "Delete for everyone" : "");
+        }
+    }
+
+    ConfirmBar {
+        id: deleteConfirm
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+
+        onConfirmed: {
+            messagesModel.deleteSelected(secondary);
+            globalState = "NO_SELECT";
+        }
     }
 }

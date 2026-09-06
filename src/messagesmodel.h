@@ -44,6 +44,13 @@ private:
     // move a flag stored in the row itself.
     QSet<qint32> _selectedIds;
 
+    // Cleared as soon as the message carrying it is sent.
+    qint32 _replyToMsgId;
+
+    // The highest id already reported as read, so sitting at the bottom of a
+    // chat does not send the same receipt on every scroll event.
+    qint32 _readUpTo;
+
     enum MessageRoles {
         PeerNameRole = Qt::UserRole + 1,
         MessageTextRole,
@@ -141,6 +148,22 @@ public slots:
     void fetchMoreUpwards();
 
     void toggleSelection(qint32 index);
+    // revoke asks the server to remove it for everyone; without it the
+    // messages only leave this account.
+    void deleteSelected(bool revoke);
+    // Takes the id rather than reading the selection: the composer keeps the
+    // message being edited while the selection that started it is closed.
+    void editMessage(qint32 messageId, QString message);
+    qint32 selectedMessageId() const;
+    QString selectedMessageSource() const;
+    // Tells the server the chat has been read up to its newest message.
+    // Called when the view is at the bottom.
+    void markRead();
+    void setReplyTo(qint32 messageId);
+    qint32 replyTo() const;
+    // True while every selected message can still be revoked, which is
+    // what decides whether the choice is offered at all.
+    bool selectionIsRevocable() const;
     void clearSelection();
     qint32 selectionCount() const;
     // True only for a selection of exactly one editable message, which is what

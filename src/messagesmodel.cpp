@@ -1,5 +1,7 @@
 #include "messagesmodel.h"
 
+#include "tgupdates.h"
+
 #include "debug.h"
 
 #include "tlschema.h"
@@ -38,6 +40,9 @@ MessagesModel::MessagesModel(QObject *parent)
     , _uploadId(0)
     , _sentMessages()
     , _media()
+    , _selectedIds()
+    , _replyToMsgId(0)
+    , _readUpTo(0)
 {
 #if QT_VERSION < 0x050000
     setRoleNames(roleNames());
@@ -98,6 +103,13 @@ void MessagesModel::resetState()
     _downRequestId = 0;
     _upOffset = 0;
     _downOffset = 0;
+
+    // A selection, a pending reply and a read mark all belong to the chat
+    // they were made in.
+    _selectedIds.clear();
+    _replyToMsgId = 0;
+    _readUpTo = 0;
+    emit selectionChanged();
 }
 
 void MessagesModel::setClient(QObject *client)
@@ -691,6 +703,170 @@ TgObject MessagesModel::createRow(TgObject message, TgObject sender, TgList user
     return row;
 }
 
+void MessagesModel::markRead()
+{
+    QMutexLocker lock(&_mutex);
+
+    if (!_client || !_client->isAuthorized() || _history.isEmpty()) {
+        return;
+    }
+
+    // _history is oldest first, so the newest id is at the end.
+    const qint32 newest = _history.last()["messageId"].toInt();
+    if (newest == 0 || newest <= _readUpTo) {
+        return;
+    }
+
+    _readUpTo = newest;
+
+    if (TgClient::isChat(_peer)) {
+        // Returns Bool rather than AffectedMessages, so there is no pts to
+        // account for on this path.
+        _client->channelsReadHistory(_peer, newest);
+        return;
+    }
+
+    const TgLongVariant requestId = _client->messagesReadHistory(_inputPeer, newest);
+
+    if (requestId.toLongLong() != 0 && _client->updates() != 0) {
+        _client->updates()->expectAffected(requestId.toLongLong(), 0);
+    }
+}
+
+void MessagesModel::setReplyTo(qint32 messageId)
+{
+    _replyToMsgId = messageId;
+}
+
+qint32 MessagesModel::replyTo() const
+{
+    return _replyToMsgId;
+}
+
+qint32 MessagesModel::selectedMessageId() const
+{
+    if (_selectedIds.size() != 1) {
+        return 0;
+    }
+
+    return *_selectedIds.constBegin();
+}
+
+QString MessagesModel::selectedMessageSource() const
+{
+    const qint32 messageId = selectedMessageId();
+    if (messageId == 0) {
+        return QString();
+    }
+
+    for (qint32 i = 0; i < _history.size(); ++i) {
+        if (_history[i]["messageId"].toInt() == messageId) {
+            // The text as it was sent. The rendered copy is HTML with the
+            // entities applied and cannot be turned back into this.
+            return _history[i]["messageSource"].toString();
+        }
+    }
+
+    return QString();
+}
+
+void MessagesModel::editMessage(qint32 messageId, QString message)
+{
+    QMutexLocker lock(&_mutex);
+
+    if (!_client || !_client->isAuthorized() || message.isEmpty() || messageId == 0) {
+        return;
+    }
+
+    // The reply is an Updates carrying updateEditMessage, which the pipeline
+    // delivers and gotUpdate already applies -- so nothing is correlated here
+    // and nothing changes on screen until the server confirms it.
+    _client->messagesEditMessage(_inputPeer, messageId, message);
+}
+
+bool MessagesModel::selectionIsRevocable() const
+{
+    if (_selectedIds.isEmpty()) {
+        return false;
+    }
+
+    const qint32 now = (qint32) QDateTime::currentDateTime().toTime_t();
+
+    for (qint32 i = 0; i < _history.size(); ++i) {
+        if (!_selectedIds.contains(_history[i]["messageId"].toInt())) {
+            continue;
+        }
+
+        if (!canDeleteMessageForEveryone(_history[i], now)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+void MessagesModel::deleteSelected(bool revoke)
+{
+    QMutexLocker lock(&_mutex);
+
+    if (!_client || !_client->isAuthorized() || _selectedIds.isEmpty()) {
+        return;
+    }
+
+    TgVector ids;
+    for (QSet<qint32>::const_iterator it = _selectedIds.constBegin();
+         it != _selectedIds.constEnd(); ++it) {
+        ids.append(*it);
+    }
+
+    TgLongVariant requestId;
+    const bool channel = TgClient::isChat(_peer);
+
+    if (channel) {
+        // messages.deleteMessages addresses messages by id across the whole
+        // account, and a channel's ids live in their own space, so the wrong
+        // one here deletes whatever happens to carry that id elsewhere.
+        requestId = _client->channelsDeleteMessages(_peer, ids);
+    } else {
+        requestId = _client->messagesDeleteMessages(ids, revoke);
+    }
+
+    if (requestId.toLongLong() == 0) {
+        return;
+    }
+
+    // The reply carries a pts for a change nothing will push back to us.
+    if (_client->updates() != 0) {
+        _client->updates()->expectAffected(
+                    requestId.toLongLong(),
+                    channel ? TgClient::getPeerId(_peer).toLongLong() : 0);
+    }
+
+    // Removed here rather than on the reply. The server has accepted the ids
+    // or it has not, and leaving them on screen until a round trip completes
+    // reads as the action having failed.
+    for (qint32 i = 0; i < _history.size(); ++i) {
+        if (!_selectedIds.contains(_history[i]["messageId"].toInt())) {
+            continue;
+        }
+
+        beginRemoveRows(QModelIndex(), i, i);
+        _history.removeAt(i);
+        endRemoveRows();
+        --i;
+    }
+
+    TgStore *store = _client->store();
+    if (store != 0 && store->isOpen()) {
+        store->deleteMessages(TgClient::getPeerId(_peer).toLongLong(),
+                              TgClient::commonPeerType(_peer).toInt(),
+                              ids);
+    }
+
+    _selectedIds.clear();
+    emit selectionChanged();
+}
+
 void MessagesModel::toggleSelection(qint32 index)
 {
     QMutexLocker lock(&_mutex);
@@ -1174,7 +1350,10 @@ void MessagesModel::sendMessage(QString message)
         return;
     }
 
-    _sentMessages.insert(_client->messagesSendMessage(_inputPeer, message, _media).toLongLong(), message);
+    _sentMessages.insert(_client->messagesSendMessage(_inputPeer, message, _media,
+                                                      randomLong(), _replyToMsgId).toLongLong(),
+                         message);
+    _replyToMsgId = 0;
     cancelUpload();
 }
 

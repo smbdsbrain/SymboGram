@@ -1,6 +1,7 @@
 <RCC>
     <qresource prefix="/">
         <file>qml/Main.qml</file>
+        <file>qml/control/ConfirmBar.qml</file>
         <file>qml/control/Drawer.qml</file>
         <file>qml/control/DrawerButton.qml</file>
         <file>qml/control/LineEdit.qml</file>
