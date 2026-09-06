@@ -53,4 +53,20 @@ QString prepareDialogItemMessage(QString text, TgList entities);
 QString messageToHtml(QString text, TgList entities);
 void handleMessageAction(TgObject &row, TgObject message, TgObject sender, TgList users, TgList chats);
 
+// Telegram refuses an edit past this, and refuses to revoke a message for
+// everyone past it too. Offering the action beyond the window is offering a
+// failure, so the window is checked here rather than discovered from an RPC
+// error after the user has committed to it.
+enum { MESSAGE_EDIT_WINDOW = 48 * 60 * 60 };
+
+// `now` is a Unix timestamp and is passed in rather than read, so the rules
+// can be exercised at a chosen moment instead of only at the present one.
+//
+// These read `out` as the server sent it. Deriving "mine" by comparing the
+// sender against the current user gets channel posts wrong: the sender of a
+// broadcast is the channel, not the account that wrote it.
+bool canEditMessage(TgObject message, qint32 now);
+bool canDeleteMessage(TgObject message);
+bool canDeleteMessageForEveryone(TgObject message, qint32 now);
+
 #endif // MESSAGEUTIL_H

@@ -73,7 +73,8 @@ if ([int] $plan.Matches[0].Groups[1].Value -eq 0) {
 Write-Host ""
 if ($failures -eq 0) {
     Write-Host "tier 0 green." -ForegroundColor Green
-    Write-Host "Covers the round trip through a blob, dialog ordering, trimming and degradation."
+    Write-Host "Covers the round trip through a blob, dialog ordering, trimming and degradation,"
+    Write-Host "plus the predicates that decide whether an edit or a delete is offered."
     Write-Host "Does NOT cover: whether the device's Qt has the driver at all -- smoke that on the phone."
 } else {
     Write-Host "$failures failure(s)." -ForegroundColor Red

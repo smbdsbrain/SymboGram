@@ -653,3 +653,37 @@ void handleMessageAction(TgObject &row, TgObject message, TgObject sender, TgLis
         break;
     }
 }
+
+// A service message carries an action in place of text, and there is no method
+// that edits one.
+static bool isEditableKind(TgObject message)
+{
+    return message["id"].toInt() != 0 && EMPTY(message["action"].toMap());
+}
+
+bool canEditMessage(TgObject message, qint32 now)
+{
+    if (!isEditableKind(message) || !message["out"].toBool()) {
+        return false;
+    }
+
+    return now - message["date"].toInt() <= MESSAGE_EDIT_WINDOW;
+}
+
+bool canDeleteMessage(TgObject message)
+{
+    // Removing a message from your own history needs no permission and has no
+    // window. Whether the account may delete it for a channel is the server's
+    // to answer -- this client does not track admin rights, and refusing the
+    // attempt here would hide an action the user may well have.
+    return message["id"].toInt() != 0;
+}
+
+bool canDeleteMessageForEveryone(TgObject message, qint32 now)
+{
+    if (message["id"].toInt() == 0 || !message["out"].toBool()) {
+        return false;
+    }
+
+    return now - message["date"].toInt() <= MESSAGE_EDIT_WINDOW;
+}

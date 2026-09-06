@@ -4,6 +4,7 @@
 #include <QAbstractListModel>
 #include <QVariant>
 #include <QMutex>
+#include <QSet>
 #include "tgclient.h"
 #include "avatardownloader.h"
 
@@ -38,6 +39,11 @@ private:
     QHash<TgLong, QString> _sentMessages;
     TgObject _media;
 
+    // Selection is keyed by message id, not by row. An edit replaces its row
+    // and a delete shifts every row after it, either of which would silently
+    // move a flag stored in the row itself.
+    QSet<qint32> _selectedIds;
+
     enum MessageRoles {
         PeerNameRole = Qt::UserRole + 1,
         MessageTextRole,
@@ -59,7 +65,18 @@ private:
         PhotoFileRole,
         HasPhotoRole,
         PhotoSpoilerRole,
-        MediaSpoilerRole
+        MediaSpoilerRole,
+        OutRole,
+        MessageSourceRole,
+        EditDateRole,
+        ReplyToMsgIdRole,
+        // Computed in data() rather than stored: they depend on the clock and
+        // on the selection, and a stored copy would be wrong the moment either
+        // moved.
+        CanEditRole,
+        CanDeleteRole,
+        CanDeleteForEveryoneRole,
+        SelectedRole
     };
 
 public:
@@ -86,6 +103,7 @@ public:
     void handleHistoryResponseUpwards(TgObject data, TgLongVariant messageId);
 
 signals:
+    void selectionChanged();
     void scrollTo(qint32 index);
     void downloadUpdated(qint32 messageId, qint32 state, QString filePath);
     void draftChanged(QString draft);
@@ -121,6 +139,13 @@ public slots:
 
     bool canFetchMoreUpwards() const;
     void fetchMoreUpwards();
+
+    void toggleSelection(qint32 index);
+    void clearSelection();
+    qint32 selectionCount() const;
+    // True only for a selection of exactly one editable message, which is what
+    // the edit action needs to know.
+    bool selectedIsEditable() const;
 
     void linkActivated(QString link, qint32 index);
     void downloadFile(qint32 index);

@@ -71,6 +71,14 @@ QHash<int, QByteArray> MessagesModel::roleNames() const
     roles[PhotoFileRole] = "photoFile";
     roles[HasPhotoRole] = "hasPhoto";
     roles[MediaSpoilerRole] = "mediaSpoiler";
+    roles[OutRole] = "out";
+    roles[MessageSourceRole] = "messageSource";
+    roles[EditDateRole] = "editDate";
+    roles[ReplyToMsgIdRole] = "replyToMsgId";
+    roles[CanEditRole] = "canEdit";
+    roles[CanDeleteRole] = "canDelete";
+    roles[CanDeleteForEveryoneRole] = "canDeleteForEveryone";
+    roles[SelectedRole] = "selected";
     roles[PhotoSpoilerRole] = "photoSpoiler";
 
     return roles;
@@ -218,6 +226,26 @@ QVariant MessagesModel::data(const QModelIndex &index, int role) const
 {
     if (role == IsChannelRole) {
         return TgClient::isChannel(_peer);
+    }
+
+    if (role == SelectedRole) {
+        return _selectedIds.contains(_history[index.row()]["messageId"].toInt());
+    }
+
+    if (role == CanEditRole || role == CanDeleteRole
+            || role == CanDeleteForEveryoneRole) {
+        const TgObject row = _history[index.row()];
+        const qint32 now = (qint32) QDateTime::currentDateTime().toTime_t();
+
+        // createRow keeps exactly the fields these read, so the predicates can
+        // be given the row rather than the message it came from.
+        if (role == CanEditRole) {
+            return canEditMessage(row, now);
+        }
+        if (role == CanDeleteRole) {
+            return canDeleteMessage(row);
+        }
+        return canDeleteMessageForEveryone(row, now);
     }
 
     if (role == MergeMessageRole) {
@@ -488,6 +516,16 @@ TgObject MessagesModel::createRow(TgObject message, TgObject sender, TgList user
 
     row["date"] = message["date"];
     row["grouped_id"] = message["grouped_id"];
+    // The server's flag, not a comparison against the current user: the sender
+    // of a channel post is the channel, so deriving it would call your own
+    // broadcasts someone else's.
+    row["out"] = message["out"].toBool();
+    row["editDate"] = message["edit_date"];
+    row["replyToMsgId"] = message["reply_to"].toMap()["reply_to_msg_id"];
+    // The text as it was sent. messageText below is HTML with the entities
+    // applied, and that rendering is lossy -- spoilers in particular are
+    // rewritten -- so it cannot be turned back into something to edit.
+    row["messageSource"] = message["message"];
     //TODO 12-hour format
     row["messageTime"] = QDateTime::fromTime_t(qMax(message["date"].toInt(), message["edit_date"].toInt())).toString("hh:mm");
     //TODO replies support
@@ -651,6 +689,74 @@ TgObject MessagesModel::createRow(TgObject message, TgObject sender, TgList user
     handleMessageAction(row, message, sender, users, chats);
 
     return row;
+}
+
+void MessagesModel::toggleSelection(qint32 index)
+{
+    QMutexLocker lock(&_mutex);
+
+    if (index < 0 || index >= _history.size()) {
+        return;
+    }
+
+    const qint32 messageId = _history[index]["messageId"].toInt();
+    if (messageId == 0) {
+        // A message the server has not numbered yet cannot be acted on, and
+        // selecting it would put the count out of step with what can be sent.
+        return;
+    }
+
+    if (!_selectedIds.remove(messageId)) {
+        _selectedIds.insert(messageId);
+    }
+
+    const QModelIndex changed = createIndex(index, 0);
+    emit dataChanged(changed, changed);
+    emit selectionChanged();
+}
+
+void MessagesModel::clearSelection()
+{
+    QMutexLocker lock(&_mutex);
+
+    if (_selectedIds.isEmpty()) {
+        return;
+    }
+
+    _selectedIds.clear();
+
+    // Every row can have lost its mark, and the rows that had one are not
+    // tracked by position -- see the comment on _selectedIds.
+    if (!_history.isEmpty()) {
+        emit dataChanged(createIndex(0, 0), createIndex(_history.size() - 1, 0));
+    }
+
+    emit selectionChanged();
+}
+
+qint32 MessagesModel::selectionCount() const
+{
+    return _selectedIds.size();
+}
+
+bool MessagesModel::selectedIsEditable() const
+{
+    if (_selectedIds.size() != 1) {
+        return false;
+    }
+
+    const qint32 messageId = *_selectedIds.constBegin();
+    const qint32 now = (qint32) QDateTime::currentDateTime().toTime_t();
+
+    for (qint32 i = 0; i < _history.size(); ++i) {
+        if (_history[i]["messageId"].toInt() == messageId) {
+            return canEditMessage(_history[i], now);
+        }
+    }
+
+    // Selected but no longer present: deleted underneath, or scrolled out of
+    // the window the model holds.
+    return false;
 }
 
 void MessagesModel::linkActivated(QString link, qint32 listIndex)
@@ -966,7 +1072,6 @@ void MessagesModel::gotUpdate(TgObject update, TgLongVariant messageId, TgList u
             sender = _peer;
         }
 
-        message["out"] = TgClient::getPeerId(sender) == _client->getUserId();
 
         qint32 oldSize = _history.size();
 
@@ -1030,7 +1135,6 @@ void MessagesModel::gotUpdate(TgObject update, TgLongVariant messageId, TgList u
             sender = _peer;
         }
 
-        message["out"] = TgClient::getPeerId(sender) == _client->getUserId();
 
         TgObject messageRow = createRow(message, sender, users, chats);
         _history.replace(rowIndex, messageRow);

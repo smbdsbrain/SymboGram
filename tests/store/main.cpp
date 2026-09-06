@@ -18,6 +18,18 @@
 #include "tlcase.h"
 #include "tlschema.h"
 
+static TgObject makeMessage(qint32 id, qint32 date, bool out)
+{
+    TGOBJECT(TLType::Message, message);
+    message["id"] = id;
+    message["date"] = date;
+    if (out) {
+        message["out"] = true;
+    }
+    message["message"] = QString("text");
+    return message;
+}
+
 static TgObject makeUser(qint64 id, const QString &firstName)
 {
     TGOBJECT(TLType::User, user);
@@ -66,7 +78,7 @@ int main(int argc, char *argv[])
     QTextStream out(stdout);
 
     TlReport r;
-    r.planned = 12;
+    r.planned = 18;
 
     // The desktop toolchain ships the driver. Without it there is nothing here
     // to test but the degradation path, and reporting the rest as passing
@@ -372,6 +384,83 @@ int main(int argc, char *argv[])
         }
 
         peerCache().clear();
+    }
+
+    // Whether a destructive action is offered at all comes down to these two
+    // predicates, and getting them wrong is not a cosmetic fault: a button
+    // that should be disabled sends a request the server refuses, after the
+    // user has committed to it.
+    {
+        const qint32 now = 1700000000;
+        const qint32 recent = now - 60 * 60;              // an hour old
+        const qint32 stale  = now - 49 * 60 * 60;         // past the window
+
+        if (canEditMessage(makeMessage(1, recent, true), now)) {
+            r.ok("edit/own recent message is editable");
+        } else {
+            r.fail("edit/own recent message is editable", "refused a fresh own message");
+        }
+
+        // Deliberate-failure control.
+        //
+        // Every assertion here would also pass if the predicates returned a
+        // constant true. The window is the half that can only be seen by
+        // asking for a moment where the answer has to change.
+        if (!canEditMessage(makeMessage(2, stale, true), now)) {
+            r.ok("control/edit past the window is refused");
+        } else {
+            r.fail("control/edit past the window is refused",
+                   "a message older than the edit window was offered for editing");
+        }
+
+        // Deliberate-failure control.
+        //
+        // The other half: a predicate returning a constant false passes the
+        // control above and fails here.
+        if (!canEditMessage(makeMessage(3, recent, false), now)) {
+            r.ok("control/someone else's message is not editable");
+        } else {
+            r.fail("control/someone else's message is not editable",
+                   "an incoming message was offered for editing");
+        }
+
+        // A service message carries an action instead of text and there is no
+        // method that edits one, however fresh and however much it is yours.
+        {
+            TgObject service = makeMessage(4, recent, true);
+            TGOBJECT(TLType::MessageActionChatCreate, action);
+            service["action"] = action;
+
+            if (!canEditMessage(service, now)) {
+                r.ok("edit/a service message is not editable");
+            } else {
+                r.fail("edit/a service message is not editable",
+                       "a service message was offered for editing");
+            }
+        }
+
+        // Removing a message from your own history needs no permission and no
+        // window, so this stays true where editing has stopped being.
+        if (canDeleteMessage(makeMessage(5, stale, false))) {
+            r.ok("delete/anything with an id can be deleted for me");
+        } else {
+            r.fail("delete/anything with an id can be deleted for me",
+                   "refused to delete an old incoming message locally");
+        }
+
+        // Revoking for everyone is bounded the way editing is, and the two
+        // answers differ for the same message -- which is the distinction the
+        // confirmation has to draw.
+        {
+            const TgObject incoming = makeMessage(6, recent, false);
+
+            if (canDeleteMessage(incoming) && !canDeleteMessageForEveryone(incoming, now)) {
+                r.ok("delete/an incoming message is not revocable for everyone");
+            } else {
+                r.fail("delete/an incoming message is not revocable for everyone",
+                       "offered to revoke a message the account did not send");
+            }
+        }
     }
 
     QFile::remove(path);
